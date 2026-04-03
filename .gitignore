@@ -41,3 +41,6 @@ coverage/
 # Lambda build artifacts
 lambdas/*/dist/
 lambdas/layer/dist/
+lambdas/*.zip
+lambdas/*.bak
+*.zip
