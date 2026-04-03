@@ -240,7 +240,162 @@ export class ControlPlaneStack extends cdk.Stack {
       resources: [configRendererFn.functionArn],
     }));
 
-    // ── API Gateway REST API ───────────────────────────────────────────────
+    // ── agentHandler ─────────────────────────────────────────────────────
+    const agentHandlerFn = new lambda.Function(this, 'AgentHandlerFn', {
+      ...baseLambdaProps as lambda.FunctionProps,
+      functionName: 'lavavps-agent-handler',
+      description:  'Agent CRUD with plan quota enforcement',
+      code:         lambda.Code.fromAsset('lambdas/handlers/agentHandler'),
+      handler:      'index.handler',
+    });
+    agentHandlerFn.addToRolePolicy(dynamoPolicy);
+    agentHandlerFn.addToRolePolicy(kmsPolicy);
+
+    // ── keyHandler ────────────────────────────────────────────────────────
+    const keyHandlerFn = new lambda.Function(this, 'KeyHandlerFn', {
+      ...baseLambdaProps as lambda.FunctionProps,
+      functionName: 'lavavps-key-handler',
+      description:  'LLM provider API key storage in Secrets Manager',
+      code:         lambda.Code.fromAsset('lambdas/handlers/keyHandler'),
+      handler:      'index.handler',
+      environment: {
+        ...commonEnv,
+        CONFIG_RENDERER_ARN: configRendererFn.functionArn,
+      },
+    });
+    keyHandlerFn.addToRolePolicy(dynamoPolicy);
+    keyHandlerFn.addToRolePolicy(secretsPolicy);
+    keyHandlerFn.addToRolePolicy(kmsPolicy);
+    keyHandlerFn.addToRolePolicy(new iam.PolicyStatement({
+      actions:   ['lambda:InvokeFunction'],
+      resources: [configRendererFn.functionArn],
+    }));
+
+    // ── modelsHandler ─────────────────────────────────────────────────────
+    const modelsHandlerFn = new lambda.Function(this, 'ModelsHandlerFn', {
+      ...baseLambdaProps as lambda.FunctionProps,
+      functionName: 'lavavps-models-handler',
+      description:  'Dynamic model list from LLM provider APIs (1hr cache)',
+      code:         lambda.Code.fromAsset('lambdas/handlers/modelsHandler'),
+      handler:      'index.handler',
+      timeout:      cdk.Duration.seconds(15),
+    });
+    modelsHandlerFn.addToRolePolicy(dynamoPolicy);
+    modelsHandlerFn.addToRolePolicy(secretsPolicy);
+    modelsHandlerFn.addToRolePolicy(kmsPolicy);
+
+    // ── taskHandler ───────────────────────────────────────────────────────
+    const taskHandlerFn = new lambda.Function(this, 'TaskHandlerFn', {
+      ...baseLambdaProps as lambda.FunctionProps,
+      functionName: 'lavavps-task-handler',
+      description:  'ECS task start/stop with pre-wake readyz polling',
+      code:         lambda.Code.fromAsset('lambdas/handlers/taskHandler'),
+      handler:      'index.handler',
+      timeout:      cdk.Duration.seconds(90), // pre-wake polls up to 45s
+      environment: {
+        ...commonEnv,
+        PRIVATE_SUBNETS: Config.privateSubnetIds.join(','),
+        FARGATE_SG_ID:   Config.sgIds.fargate,
+        EFS_ID:          Config.deployed.efsId,
+      },
+    });
+    taskHandlerFn.addToRolePolicy(dynamoPolicy);
+    taskHandlerFn.addToRolePolicy(ecsPolicy);
+    taskHandlerFn.addToRolePolicy(iamPassRolePolicy);
+    taskHandlerFn.addToRolePolicy(kmsPolicy);
+
+    // ── channelHandler ────────────────────────────────────────────────────
+    const channelHandlerFn = new lambda.Function(this, 'ChannelHandlerFn', {
+      ...baseLambdaProps as lambda.FunctionProps,
+      functionName: 'lavavps-channel-handler',
+      description:  'Discord/Telegram/WhatsApp channel credential management',
+      code:         lambda.Code.fromAsset('lambdas/handlers/channelHandler'),
+      handler:      'index.handler',
+      environment: {
+        ...commonEnv,
+        CONFIG_RENDERER_ARN: configRendererFn.functionArn,
+      },
+    });
+    channelHandlerFn.addToRolePolicy(dynamoPolicy);
+    channelHandlerFn.addToRolePolicy(kmsPolicy);
+    channelHandlerFn.addToRolePolicy(new iam.PolicyStatement({
+      actions:   ['lambda:InvokeFunction'],
+      resources: [configRendererFn.functionArn],
+    }));
+
+    // ── fileHandler ───────────────────────────────────────────────────────
+    const fileHandlerFn = new lambda.Function(this, 'FileHandlerFn', {
+      ...baseLambdaProps as lambda.FunctionProps,
+      functionName: 'lavavps-file-handler',
+      description:  'EFS workspace file management with storage quota enforcement',
+      code:         lambda.Code.fromAsset('lambdas/handlers/fileHandler'),
+      handler:      'index.handler',
+    });
+    fileHandlerFn.addToRolePolicy(dynamoPolicy);
+    fileHandlerFn.addToRolePolicy(new iam.PolicyStatement({
+      actions:   ['s3:GetObject', 's3:PutObject', 's3:DeleteObject', 's3:ListBucket'],
+      resources: [
+        `arn:aws:s3:::${Config.deployed.chatBucket}`,
+        `arn:aws:s3:::${Config.deployed.chatBucket}/*`,
+      ],
+    }));
+    fileHandlerFn.addToRolePolicy(kmsPolicy);
+
+    // ── wsHandler ─────────────────────────────────────────────────────────
+    const wsHandlerFn = new lambda.Function(this, 'WsHandlerFn', {
+      ...baseLambdaProps as lambda.FunctionProps,
+      functionName: 'lavavps-ws-handler',
+      description:  'WebSocket relay: portal <-> OpenClaw agent',
+      code:         lambda.Code.fromAsset('lambdas/handlers/wsHandler'),
+      handler:      'index.handler',
+      timeout:      cdk.Duration.seconds(29), // API GW WS max
+      ...vpcLambdaProps,
+    });
+    wsHandlerFn.addToRolePolicy(dynamoPolicy);
+    wsHandlerFn.addToRolePolicy(new iam.PolicyStatement({
+      actions:   ['execute-api:ManageConnections'],
+      resources: [`arn:aws:execute-api:${Config.region}:${Config.account}:${Config.deployed.wsApiId}/*`],
+    }));
+    wsHandlerFn.addToRolePolicy(kmsPolicy);
+
+    // ── taskWatcherLambda ─────────────────────────────────────────────────
+    const taskWatcherFn = new lambda.Function(this, 'TaskWatcherFn', {
+      ...baseLambdaProps as lambda.FunctionProps,
+      functionName: 'lavavps-task-watcher',
+      description:  'Scheduled: idle timeout enforcement + crash loop detection',
+      code:         lambda.Code.fromAsset('lambdas/handlers/taskWatcher'),
+      handler:      'index.handler',
+      timeout:      cdk.Duration.seconds(60),
+      environment: {
+        ...commonEnv,
+        OPS_SNS_ARN: `arn:aws:sns:${Config.region}:${Config.account}:lavavps-ops-alerts`,
+      },
+    });
+    taskWatcherFn.addToRolePolicy(dynamoPolicy);
+    taskWatcherFn.addToRolePolicy(ecsPolicy);
+    taskWatcherFn.addToRolePolicy(new iam.PolicyStatement({
+      actions:   ['sns:Publish'],
+      resources: [`arn:aws:sns:${Config.region}:${Config.account}:lavavps-ops-alerts`],
+    }));
+    taskWatcherFn.addToRolePolicy(kmsPolicy);
+
+    // Wire taskWatcher to the scheduled rule
+    const taskWatcherTarget = new targets.LambdaFunction(taskWatcherFn, {
+      retryAttempts: 1,
+    });
+
+    // ── jobHandler ────────────────────────────────────────────────────────
+    const jobHandlerFn = new lambda.Function(this, 'JobHandlerFn', {
+      ...baseLambdaProps as lambda.FunctionProps,
+      functionName: 'lavavps-job-handler',
+      description:  'Ralph Loop autonomous task management (Pro+ only)',
+      code:         lambda.Code.fromAsset('lambdas/handlers/jobHandler'),
+      handler:      'index.handler',
+    });
+    jobHandlerFn.addToRolePolicy(dynamoPolicy);
+    jobHandlerFn.addToRolePolicy(kmsPolicy);
+
+        // ── API Gateway REST API ───────────────────────────────────────────────
     const logGroup = new logs.LogGroup(this, 'ApiLogGroup', {
       logGroupName:  '/openclaw/api/access',
       retention:     logs.RetentionDays.ONE_MONTH,
@@ -292,9 +447,56 @@ export class ControlPlaneStack extends cdk.Stack {
     configResource.addMethod('GET', lambdaIntegration(configHandlerFn), authOptions);
     configResource.addMethod('PUT', lambdaIntegration(configHandlerFn), authOptions);
 
+    // GET/POST /agents
+    agentsResource.addMethod('GET',  lambdaIntegration(agentHandlerFn), authOptions);
+    agentsResource.addMethod('POST', lambdaIntegration(agentHandlerFn), authOptions);
+
+    // GET/DELETE /agents/{agentId}
+    agentResource.addMethod('GET',    lambdaIntegration(agentHandlerFn), authOptions);
+    agentResource.addMethod('DELETE', lambdaIntegration(agentHandlerFn), authOptions);
+
+    // POST/DELETE /agents/{agentId}/keys
+    const keysResource = agentResource.addResource('keys');
+    keysResource.addMethod('POST',   lambdaIntegration(keyHandlerFn), authOptions);
+    keysResource.addMethod('DELETE', lambdaIntegration(keyHandlerFn), authOptions);
+
+    // GET /agents/{agentId}/models
+    const modelsResource = agentResource.addResource('models');
+    modelsResource.addMethod('GET', lambdaIntegration(modelsHandlerFn), authOptions);
+
+    // GET/POST /agents/{agentId}/status|start|stop
+    const statusResource = agentResource.addResource('status');
+    statusResource.addMethod('GET', lambdaIntegration(taskHandlerFn), authOptions);
+
+    const actionResource = agentResource.addResource('{action}'); // start | stop
+    actionResource.addMethod('POST', lambdaIntegration(taskHandlerFn), authOptions);
+
+    // PUT /agents/{agentId}/channels
+    // DELETE /agents/{agentId}/channels/{channelName}
+    const channelsResource = agentResource.addResource('channels');
+    channelsResource.addMethod('PUT', lambdaIntegration(channelHandlerFn), authOptions);
+    const channelNameResource = channelsResource.addResource('{channelName}');
+    channelNameResource.addMethod('DELETE', lambdaIntegration(channelHandlerFn), authOptions);
+
+    // GET/POST /agents/{agentId}/files
+    // GET/DELETE /agents/{agentId}/files/{fileKey+}
+    const filesResource = agentResource.addResource('files');
+    filesResource.addMethod('GET',  lambdaIntegration(fileHandlerFn), authOptions);
+    filesResource.addMethod('POST', lambdaIntegration(fileHandlerFn), authOptions);
+    const fileKeyResource = filesResource.addResource('{fileKey+}');
+    fileKeyResource.addMethod('GET',    lambdaIntegration(fileHandlerFn), authOptions);
+    fileKeyResource.addMethod('DELETE', lambdaIntegration(fileHandlerFn), authOptions);
+
+    // GET/POST /agents/{agentId}/jobs
+    // GET/DELETE /agents/{agentId}/jobs/{jobId}
+    const jobsResource = agentResource.addResource('jobs');
+    jobsResource.addMethod('GET',  lambdaIntegration(jobHandlerFn), authOptions);
+    jobsResource.addMethod('POST', lambdaIntegration(jobHandlerFn), authOptions);
+    const jobResource = jobsResource.addResource('{jobId}');
+    jobResource.addMethod('GET',    lambdaIntegration(jobHandlerFn), authOptions);
+    jobResource.addMethod('DELETE', lambdaIntegration(jobHandlerFn), authOptions);
+
     // ── WebSocket API (API Gateway v2) ────────────────────────────────────
-    // Phase 4 Part B: full wsHandler Lambda wired to $connect/$default/$disconnect
-    // WebSocket API created here, routes added in next session
     this.wsApi = new apigwv2.CfnApi(this, 'WsApi', {
       name:                       'lavavps-ws',
       protocolType:               'WEBSOCKET',
@@ -302,16 +504,40 @@ export class ControlPlaneStack extends cdk.Stack {
       description:                'LavaVPS WebSocket API for real-time agent chat',
     });
 
+    // WebSocket Lambda integration
+    const wsIntegration = new apigwv2.CfnIntegration(this, 'WsIntegration', {
+      apiId:             this.wsApi.ref,
+      integrationType:   'AWS_PROXY',
+      integrationUri:    `arn:aws:apigateway:${Config.region}:lambda:path/2015-03-31/functions/${wsHandlerFn.functionArn}/invocations`,
+    });
+
+    // WebSocket routes: $connect, $disconnect, $default
+    for (const routeKey of ['$connect', '$disconnect', '$default']) {
+      const route = new apigwv2.CfnRoute(this, `WsRoute${routeKey.replace('$', '')}`, {
+        apiId:    this.wsApi.ref,
+        routeKey,
+        target:   `integrations/${wsIntegration.ref}`,
+        authorizationType: 'NONE', // wsHandler validates JWT from query param ?token=
+      });
+      void route;
+    }
+
+    // Grant API Gateway permission to invoke wsHandler
+    wsHandlerFn.addPermission('WsApiInvoke', {
+      principal:   new iam.ServicePrincipal('apigateway.amazonaws.com'),
+      sourceArn:   `arn:aws:execute-api:${Config.region}:${Config.account}:${this.wsApi.ref}/*`,
+    });
+
     // ── EventBridge: Task Watcher schedule ───────────────────────────────
     // taskWatcherLambda runs every 2 minutes to check idle timeouts and crash loops
     // Built in Phase 4 Part B — placeholder rule created now
-    new events.Rule(this, 'TaskWatcherRule', {
+    const taskWatcherRule = new events.Rule(this, 'TaskWatcherRule', {
       ruleName:    'lavavps-task-watcher',
       description: 'Triggers taskWatcherLambda every 2 minutes',
       schedule:    events.Schedule.rate(cdk.Duration.minutes(2)),
-      // NOTE: Scheduled rules always use the default event bus - do not specify eventBus
       enabled:     true,
     });
+    taskWatcherRule.addTarget(taskWatcherTarget);
 
     // ── Outputs ───────────────────────────────────────────────────────────
     new cdk.CfnOutput(this, 'RestApiUrl', {
