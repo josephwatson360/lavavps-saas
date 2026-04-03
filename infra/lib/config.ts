@@ -76,6 +76,12 @@ export const Config = {
     authorizerArn:         'arn:aws:lambda:us-east-1:914964735635:function:lavavps-authorizer',
     bootstrapperArn:       'arn:aws:lambda:us-east-1:914964735635:function:lavavps-bootstrapper',
     configHandlerArn:      'arn:aws:lambda:us-east-1:914964735635:function:lavavps-config-handler',
+    // Phase 5 - Billing (deployed 2026-04-03)
+    provisioningSmArn:     'arn:aws:states:us-east-1:914964735635:stateMachine:lavavps-provisioning',
+    webhookEndpointUrl:    'https://uc9hglacf3.execute-api.us-east-1.amazonaws.com/prod/stripe',
+    opsAlertsTopicArn:     'arn:aws:sns:us-east-1:914964735635:lavavps-ops-alerts',
+    stripeWebhookArn:      'arn:aws:lambda:us-east-1:914964735635:function:lavavps-stripe-webhook',
+    provisioningLambdaArn: 'arn:aws:lambda:us-east-1:914964735635:function:lavavps-provisioning',
   },
 
 
