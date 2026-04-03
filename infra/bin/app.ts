@@ -1,11 +1,12 @@
 #!/usr/bin/env node
 import * as cdk from 'aws-cdk-lib';
-import { NetworkStack }  from '../lib/network-stack';
-import { SecurityStack } from '../lib/security-stack';
-import { StorageStack }  from '../lib/storage-stack';
-import { DataStack }     from '../lib/data-stack';
-import { AuthStack }     from '../lib/auth-stack';
-import { RuntimeStack }  from '../lib/runtime-stack';
+import { NetworkStack }      from '../lib/network-stack';
+import { SecurityStack }     from '../lib/security-stack';
+import { StorageStack }      from '../lib/storage-stack';
+import { DataStack }         from '../lib/data-stack';
+import { AuthStack }         from '../lib/auth-stack';
+import { RuntimeStack }      from '../lib/runtime-stack';
+import { ControlPlaneStack } from '../lib/control-plane-stack';
 import { Config } from '../lib/config';
 
 const app = new cdk.App();
@@ -33,16 +34,29 @@ const authStack = new AuthStack(app, `${Config.stackPrefix}-Auth`, { env });
 // Phase 3
 const runtimeStack = new RuntimeStack(app, `${Config.stackPrefix}-Runtime`, {
   env,
-  vpc:                  networkStack.vpc,
-  cmk:                  securityStack.cmk,
-  albSg:                networkStack.albSg,
-  fargateSg:            networkStack.fargateSg,
-  ollamaSg:             networkStack.ollamaSg,
-  efsSg:                storageStack.efsSg,
-  filesystem:           storageStack.filesystem,
-  userPool:             authStack.userPool,
-  userPoolClient:       authStack.userPoolClient,
-  wafWebAclArn:         securityStack.wafWebAclArn,
+  vpc:          networkStack.vpc,
+  cmk:          securityStack.cmk,
+  albSg:        networkStack.albSg,
+  fargateSg:    networkStack.fargateSg,
+  ollamaSg:     networkStack.ollamaSg,
+  efsSg:        storageStack.efsSg,
+  filesystem:   storageStack.filesystem,
+  userPool:     authStack.userPool,
+  userPoolClient: authStack.userPoolClient,
+  wafWebAclArn: securityStack.wafWebAclArn,
+});
+
+// Phase 4
+const controlPlaneStack = new ControlPlaneStack(app, `${Config.stackPrefix}-ControlPlane`, {
+  env,
+  vpc:             networkStack.vpc,
+  cmk:             securityStack.cmk,
+  lambdaSg:        networkStack.lambdaSg,
+  configBucket:       storageStack.configBucket,
+  bootstrapperApId:   storageStack.bootstrapperApId,
+  userPool:        authStack.userPool,
+  userPoolClient:  authStack.userPoolClient,
+  eventBus:        dataStack.eventBus,
 });
 
 // Dependency declarations
@@ -51,13 +65,12 @@ dataStack.addDependency(securityStack);
 runtimeStack.addDependency(networkStack);
 runtimeStack.addDependency(storageStack);
 runtimeStack.addDependency(authStack);
-// NOTE: runtimeStack -> securityStack dependency is inferred by CDK from
-// cross-stack references (cmk, wafWebAclArn). fargateExecutionRole lives in RuntimeStack.
-// Do NOT add it explicitly - combined with SecurityStack's implicit
-// reference to RuntimeStack it would create a cycle.
+controlPlaneStack.addDependency(runtimeStack);
+controlPlaneStack.addDependency(dataStack);
 
 // Global tags
-const allStacks = [networkStack, securityStack, storageStack, dataStack, authStack, runtimeStack];
+const allStacks = [networkStack, securityStack, storageStack, dataStack,
+                   authStack, runtimeStack, controlPlaneStack];
 allStacks.forEach(stack =>
   Object.entries(Config.tags).forEach(([k, v]) => cdk.Tags.of(stack).add(k, v))
 );

@@ -35,9 +35,10 @@ export interface StorageStackProps extends cdk.StackProps {
 
 export class StorageStack extends cdk.Stack {
   public readonly filesystem:   efs.FileSystem;
-  public readonly efsSg:        ec2.SecurityGroup;
-  public readonly configBucket: s3.Bucket;
-  public readonly chatBucket:   s3.Bucket;
+  public readonly efsSg:             ec2.SecurityGroup;
+  public readonly configBucket:      s3.Bucket;
+  public readonly chatBucket:        s3.Bucket;
+  public readonly bootstrapperApId:  string;
 
   constructor(scope: Construct, id: string, props: StorageStackProps) {
     super(scope, id, props);
@@ -134,6 +135,17 @@ export class StorageStack extends cdk.Stack {
       removalPolicy: cdk.RemovalPolicy.RETAIN,
     });
 
+    // ── EFS Access Point for bootstrapperLambda ──────────────────────────
+    // Created here (in StorageStack) to avoid cross-stack CDK dependency cycles.
+    // ControlPlaneStack references this by ID via fromAccessPointId().
+    const bootstrapperAp = this.filesystem.addAccessPoint('BootstrapperAP', {
+      path:      '/',
+      posixUser: { uid: '1000', gid: '1000' },
+      createAcl: { ownerUid: '1000', ownerGid: '1000', permissions: '755' },
+    });
+
+    this.bootstrapperApId = bootstrapperAp.accessPointId;
+
     // ── Outputs ────────────────────────────────────────────────────────────
     new cdk.CfnOutput(this, 'EfsId', {
       value:      this.filesystem.fileSystemId,
@@ -160,6 +172,12 @@ export class StorageStack extends cdk.Stack {
     new cdk.CfnOutput(this, 'ChatBucketName', {
       value:      this.chatBucket.bucketName,
       exportName: 'LavaVPS-ChatBucketName',
+    });
+
+    new cdk.CfnOutput(this, 'BootstrapperApId', {
+      value:      bootstrapperAp.accessPointId,
+      exportName: 'LavaVPS-BootstrapperApId',
+      description: 'EFS Access Point ID for bootstrapperLambda',
     });
 
     new cdk.CfnOutput(this, 'EfsIntelligentTieringNote', {

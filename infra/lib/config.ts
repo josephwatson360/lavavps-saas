@@ -67,6 +67,15 @@ export const Config = {
     taskDefStarter:        'arn:aws:ecs:us-east-1:914964735635:task-definition/lavavps-openclaw-starter:3',
     taskDefPro:            'arn:aws:ecs:us-east-1:914964735635:task-definition/lavavps-openclaw-pro:3',
     taskDefBusiness:       'arn:aws:ecs:us-east-1:914964735635:task-definition/lavavps-openclaw-business:3',
+    // Phase 4 - ControlPlane (deployed 2026-04-03)
+    bootstrapperApId:      'fsap-0f47ae1ba46cb70e2',
+    restApiId:             'szq8luumc4',
+    restApiUrl:            'https://szq8luumc4.execute-api.us-east-1.amazonaws.com/prod/',
+    wsApiId:               'v7obiyukqj',
+    configRendererArn:     'arn:aws:lambda:us-east-1:914964735635:function:lavavps-config-renderer',
+    authorizerArn:         'arn:aws:lambda:us-east-1:914964735635:function:lavavps-authorizer',
+    bootstrapperArn:       'arn:aws:lambda:us-east-1:914964735635:function:lavavps-bootstrapper',
+    configHandlerArn:      'arn:aws:lambda:us-east-1:914964735635:function:lavavps-config-handler',
   },
 
 

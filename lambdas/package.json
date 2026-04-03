@@ -4,31 +4,37 @@
   "private": true,
   "scripts": {
     "build": "tsc --noEmit",
-    "test":  "jest --passWithNoTests"
+    "test": "jest --passWithNoTests"
   },
   "devDependencies": {
     "@types/aws-lambda": "^8.10.145",
-    "@types/node":       "^22.0.0",
-    "@types/jest":       "^29.5.0",
-    "jest":              "^29.7.0",
-    "ts-jest":           "^29.2.0",
-    "typescript":        "^5.7.0"
+    "@types/node": "^24.0.0",
+    "@types/jest": "^29.5.0",
+    "jest": "^29.7.0",
+    "ts-jest": "^29.2.0",
+    "typescript": "^5.7.0"
   },
   "dependencies": {
-    "@aws-sdk/client-dynamodb":          "^3.0.0",
-    "@aws-sdk/client-ecs":               "^3.0.0",
-    "@aws-sdk/client-secrets-manager":   "^3.0.0",
-    "@aws-sdk/client-s3":                "^3.0.0",
-    "@aws-sdk/client-cloudwatch-logs":   "^3.0.0",
-    "@aws-sdk/client-iam":               "^3.0.0",
-    "@aws-sdk/client-efs":               "^3.0.0",
-    "@aws-sdk/lib-dynamodb":             "^3.0.0",
-    "@aws-sdk/util-dynamodb":            "^3.0.0"
+    "@aws-sdk/client-dynamodb": "^3.0.0",
+    "@aws-sdk/client-ecs": "^3.0.0",
+    "@aws-sdk/client-secrets-manager": "^3.0.0",
+    "@aws-sdk/client-s3": "^3.0.0",
+    "@aws-sdk/client-cloudwatch-logs": "^3.0.0",
+    "@aws-sdk/client-iam": "^3.0.0",
+    "@aws-sdk/client-efs": "^3.0.0",
+    "@aws-sdk/lib-dynamodb": "^3.0.0",
+    "@aws-sdk/util-dynamodb": "^3.0.0",
+    "aws-jwt-verify": "^4.0.0",
+    "@aws-sdk/client-lambda": "^3.0.0"
   },
   "jest": {
     "testEnvironment": "node",
-    "roots": ["<rootDir>/handlers"],
-    "transform": { "^.+\\.tsx?$": "ts-jest" },
+    "roots": [
+      "<rootDir>/handlers"
+    ],
+    "transform": {
+      "^.+\\.tsx?$": "ts-jest"
+    },
     "testRegex": "(/__tests__/.*|(\\.|/)(test|spec))\\.tsx?$"
   }
 }
