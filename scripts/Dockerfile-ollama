@@ -1,0 +1,31 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# LavaVPS Ollama Image
+#
+# Pre-bakes llama3.2:1b into the image so the model is immediately available
+# when the container starts. No cold-start model download in production.
+#
+# llama3.2:1b specs:
+#   - Size: ~1.3GB on disk
+#   - RAM:  ~1.5GB loaded
+#   - Use:  OpenClaw heartbeat LLM turns (not customer conversations)
+#   - Why:  Zero customer API token consumption for platform heartbeats
+#
+# Build: ./scripts/push-ollama.sh
+# ─────────────────────────────────────────────────────────────────────────────
+
+FROM ollama/ollama:latest
+
+# Pre-bake llama3.2:1b into the image layer.
+# This runs ollama serve in background, pulls the model, then stops.
+# On container start the model is already present - no download needed.
+RUN ollama serve & \
+    OLLAMA_PID=$! && \
+    sleep 5 && \
+    ollama pull llama3.2:1b && \
+    kill $OLLAMA_PID && \
+    wait $OLLAMA_PID 2>/dev/null || true
+
+# Expose Ollama API port
+EXPOSE 11434
+
+# Entry point inherited from base image (ollama serve)

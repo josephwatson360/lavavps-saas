@@ -34,7 +34,6 @@ export const Config = {
     cmkArn:                'arn:aws:kms:us-east-1:914964735635:key/b1121ef0-9c7e-4e61-b643-0df20cda67e6',
     cmkAlias:              'alias/lavavps-cmk',
     wafWebAclArn:          'arn:aws:wafv2:us-east-1:914964735635:regional/webacl/lavavps-waf/37ef6a53-aa2d-43a0-b434-402ac8d29a9b',
-    fargateExecutionRole:  'arn:aws:iam::914964735635:role/lavavps-fargate-execution-role',
     // trustedProxies: public subnet CIDRs for OpenClaw gateway config (locked in configRenderer)
     trustedProxies:        ['10.100.0.0/24', '10.100.1.0/24'],
     // Phase 2 - Storage
@@ -53,6 +52,21 @@ export const Config = {
     userPoolArn:           'arn:aws:cognito-idp:us-east-1:914964735635:userpool/us-east-1_r7nxhqGwR',
     userPoolClientId:      '47atk0mdhjraugv76fioc0lh2h',
     cognitoDomain:         'lavavps-auth.auth.us-east-1.amazoncognito.com',
+    // ACM Certificates (wildcard, ISSUED, validated 2026-04-03)
+    certArnAi:  'arn:aws:acm:us-east-1:914964735635:certificate/b75a309c-cacf-4f0b-86e9-9c4a17edacbd',
+    certArnCom: 'arn:aws:acm:us-east-1:914964735635:certificate/84ff8648-287e-46f9-99b5-381ad776ef42',
+    // Phase 3 - Runtime (deployed 2026-04-03)
+    clusterArn:            'arn:aws:ecs:us-east-1:914964735635:cluster/lavavps-agents',
+    clusterName:           'lavavps-agents',
+    openclawEcrUri:        '914964735635.dkr.ecr.us-east-1.amazonaws.com/lavavps-openclaw',
+    ollamaEcrUri:          '914964735635.dkr.ecr.us-east-1.amazonaws.com/lavavps-ollama',
+    externalAlbDns:        'lavavps-external-2118291816.us-east-1.elb.amazonaws.com',
+    ollamaAlbDns:          'internal-lavavps-ollama-internal-1242782243.us-east-1.elb.amazonaws.com',
+    httpsListenerArn:      'arn:aws:elasticloadbalancing:us-east-1:914964735635:listener/app/lavavps-external/7827c0238878ddd0/25ecc425aef4c1e4',
+    fargateExecutionRole:  'arn:aws:iam::914964735635:role/lavavps-fargate-execution-role',
+    taskDefStarter:        'arn:aws:ecs:us-east-1:914964735635:task-definition/lavavps-openclaw-starter:3',
+    taskDefPro:            'arn:aws:ecs:us-east-1:914964735635:task-definition/lavavps-openclaw-pro:3',
+    taskDefBusiness:       'arn:aws:ecs:us-east-1:914964735635:task-definition/lavavps-openclaw-business:3',
   },
 
 

@@ -20,7 +20,8 @@ import { Config } from './config';
 //   - WAF WebACL: OWASP Top 10, IP reputation, rate limiting (1000 req/5min)
 //   - Fargate Execution Role: ECR pull + CloudWatch Logs write
 //
-// Exports: cmk, wafWebAclArn, fargateExecutionRole
+// Exports: cmk, wafWebAclArn
+// Note: fargateExecutionRole is in RuntimeStack to avoid cross-stack ECR dependency cycle
 // ─────────────────────────────────────────────────────────────────────────────
 
 export interface SecurityStackProps extends cdk.StackProps {
@@ -30,7 +31,6 @@ export interface SecurityStackProps extends cdk.StackProps {
 export class SecurityStack extends cdk.Stack {
   public readonly cmk:                  kms.Key;
   public readonly wafWebAclArn:         string;
-  public readonly fargateExecutionRole: iam.Role;
 
   constructor(scope: Construct, id: string, props: SecurityStackProps) {
     super(scope, id, props);
@@ -233,51 +233,6 @@ export class SecurityStack extends cdk.Stack {
       value:      this.wafWebAclArn,
       exportName: 'LavaVPS-WafWebAclArn',
       description: 'WAF WebACL ARN - attach to ALB and CloudFront distribution',
-    });
-
-    // ── Fargate Execution Role ────────────────────────────────────────────
-    // This is the EXECUTION role: ECS uses it to start tasks (pull images, write logs).
-    // It is NOT the task role. Per-tenant task roles are created at provisioning time
-    // and are scoped only to that tenant's own resources.
-    this.fargateExecutionRole = new iam.Role(this, 'FargateExecutionRole', {
-      roleName:     'lavavps-fargate-execution-role',
-      description:  'ECS task execution - ECR image pull and CloudWatch Logs',
-      assumedBy:    new iam.ServicePrincipal('ecs-tasks.amazonaws.com'),
-      managedPolicies: [
-        iam.ManagedPolicy.fromAwsManagedPolicyName(
-          'service-role/AmazonECSTaskExecutionRolePolicy'),
-      ],
-    });
-
-    // Scope CloudWatch Logs write to /openclaw/* log groups only
-    this.fargateExecutionRole.addToPolicy(new iam.PolicyStatement({
-      sid:       'CloudWatchLogsWrite',
-      actions:   ['logs:CreateLogGroup', 'logs:CreateLogStream', 'logs:PutLogEvents'],
-      resources: [`arn:aws:logs:${Config.region}:${Config.account}:log-group:/openclaw/*`],
-    }));
-
-    // Allow reading secrets at task startup (used for OPENCLAW_GATEWAY_TOKEN)
-    // Per-tenant task roles are granted access to their specific secret ARNs only.
-    // This execution role gets read access to the namespace to support ECS secret injection.
-    this.fargateExecutionRole.addToPolicy(new iam.PolicyStatement({
-      sid:     'SecretsManagerRead',
-      actions: ['secretsmanager:GetSecretValue'],
-      resources: [
-        `arn:aws:secretsmanager:${Config.region}:${Config.account}:secret:/openclaw/*`,
-      ],
-    }));
-
-    // KMS decrypt for secrets encrypted with our CMK
-    this.fargateExecutionRole.addToPolicy(new iam.PolicyStatement({
-      sid:     'KmsDecrypt',
-      actions: ['kms:Decrypt', 'kms:GenerateDataKey'],
-      resources: [this.cmk.keyArn],
-    }));
-
-    new cdk.CfnOutput(this, 'FargateExecutionRoleArn', {
-      value:      this.fargateExecutionRole.roleArn,
-      exportName: 'LavaVPS-FargateExecutionRoleArn',
-      description: 'ECS execution role - shared across all Fargate tasks',
     });
 
     // Tags
