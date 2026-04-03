@@ -8,6 +8,7 @@ import { AuthStack }         from '../lib/auth-stack';
 import { RuntimeStack }      from '../lib/runtime-stack';
 import { ControlPlaneStack } from '../lib/control-plane-stack';
 import { BillingStack }      from '../lib/billing-stack';
+import { PortalStack }       from '../lib/portal-stack';
 import { Config } from '../lib/config';
 
 const app = new cdk.App();
@@ -66,6 +67,14 @@ const billingStack = new BillingStack(app, `${Config.stackPrefix}-Billing`, {
   cmk: securityStack.cmk,
 });
 
+// Phase 6
+const portalStack = new PortalStack(app, `${Config.stackPrefix}-Portal`, {
+  env,
+  githubOwner: app.node.tryGetContext('githubOwner') ?? 'josephwatson360',
+  githubRepo:  app.node.tryGetContext('githubRepo')  ?? 'lavavps-saas',
+  githubToken: app.node.tryGetContext('githubToken')  ?? '',
+});
+
 // Dependency declarations
 storageStack.addDependency(securityStack);
 dataStack.addDependency(securityStack);
@@ -75,10 +84,11 @@ runtimeStack.addDependency(authStack);
 controlPlaneStack.addDependency(runtimeStack);
 controlPlaneStack.addDependency(dataStack);
 billingStack.addDependency(controlPlaneStack);
+portalStack.addDependency(authStack); // needs Cognito user pool ID for env vars
 
 // Global tags
 const allStacks = [networkStack, securityStack, storageStack, dataStack,
-                   authStack, runtimeStack, controlPlaneStack, billingStack];
+                   authStack, runtimeStack, controlPlaneStack, billingStack, portalStack];
 allStacks.forEach(stack =>
   Object.entries(Config.tags).forEach(([k, v]) => cdk.Tags.of(stack).add(k, v))
 );
