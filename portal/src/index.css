@@ -1,0 +1,163 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --lava-500: #CC2200;
+    --lava-400: #FF4D1F;
+    --obsidian-950: #060608;
+    --surface: #111116;
+    --card: #18181F;
+    --border: #242432;
+  }
+
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: #3A3A4A #111116;
+  }
+
+  *::-webkit-scrollbar       { width: 4px; height: 4px; }
+  *::-webkit-scrollbar-track { background: #111116; }
+  *::-webkit-scrollbar-thumb { background: #3A3A4A; border-radius: 2px; }
+
+  ::selection {
+    background: rgba(204, 34, 0, 0.3);
+    color: #fff;
+  }
+}
+
+@layer components {
+  /* Button variants */
+  .btn {
+    @apply inline-flex items-center justify-center gap-2 px-4 py-2 rounded-lg
+           font-medium text-sm transition-all duration-150
+           focus:outline-none focus:ring-2 focus:ring-lava-500/40
+           disabled:opacity-40 disabled:cursor-not-allowed;
+  }
+  .btn-primary {
+    @apply btn bg-lava-500 text-white hover:bg-lava-400
+           shadow-lava-sm hover:shadow-lava active:scale-[0.98];
+  }
+  .btn-secondary {
+    @apply btn bg-obsidian-700 text-text border border-border
+           hover:bg-obsidian-600 hover:border-obsidian-500;
+  }
+  .btn-ghost {
+    @apply btn text-muted hover:text-text hover:bg-obsidian-800;
+  }
+  .btn-danger {
+    @apply btn bg-red-900/20 text-red-400 border border-red-900/30
+           hover:bg-red-900/30 hover:border-red-800/50;
+  }
+  .btn-icon {
+    @apply btn p-2 w-8 h-8;
+  }
+
+  /* Card */
+  .card {
+    @apply bg-card border border-border rounded-xl shadow-card;
+  }
+  .card-hover {
+    @apply card transition-all duration-200
+           hover:border-obsidian-500 hover:shadow-lava-sm;
+  }
+
+  /* Input */
+  .input {
+    @apply w-full bg-obsidian-800 border border-border rounded-lg px-3 py-2
+           text-sm text-text placeholder:text-muted
+           focus:outline-none focus:ring-1 focus:ring-lava-500/50 focus:border-lava-500/50
+           transition-all duration-150;
+  }
+  .input-lg {
+    @apply input px-4 py-3 text-base;
+  }
+
+  /* Label */
+  .label {
+    @apply block text-xs font-medium text-muted mb-1.5 uppercase tracking-wider;
+  }
+
+  /* Badge / Status */
+  .badge {
+    @apply inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-xs font-medium;
+  }
+  .badge-running  { @apply badge bg-green-900/30 text-green-400 border border-green-900/40; }
+  .badge-stopped  { @apply badge bg-obsidian-700 text-muted border border-border; }
+  .badge-starting { @apply badge bg-blue-900/30 text-blue-400 border border-blue-900/40; }
+  .badge-suspended{ @apply badge bg-red-900/30 text-red-400 border border-red-900/40; }
+  .badge-provisioning { @apply badge bg-yellow-900/30 text-yellow-400 border border-yellow-900/40; }
+
+  /* Section header */
+  .section-title {
+    @apply font-display text-xl font-bold text-text;
+  }
+
+  /* Divider */
+  .divider {
+    @apply w-full h-px bg-border;
+  }
+
+  /* Lava dot indicator */
+  .lava-dot {
+    @apply w-1.5 h-1.5 rounded-full bg-lava-500;
+  }
+
+  /* Mono text */
+  .mono {
+    @apply font-mono text-xs text-muted;
+  }
+}
+
+@layer utilities {
+  .text-gradient-lava {
+    background: linear-gradient(135deg, #FF4D1F 0%, #CC2200 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+
+  .bg-mesh {
+    background-image:
+      radial-gradient(ellipse at 20% 20%, rgba(204, 34, 0, 0.04) 0%, transparent 50%),
+      radial-gradient(ellipse at 80% 80%, rgba(204, 34, 0, 0.03) 0%, transparent 50%);
+  }
+
+  .glow-lava {
+    box-shadow: 0 0 20px rgba(204, 34, 0, 0.2);
+  }
+
+  .border-lava {
+    border-color: rgba(204, 34, 0, 0.3);
+  }
+
+  /* Chat message bubbles */
+  .msg-user {
+    @apply bg-lava-500/10 border border-lava-500/20 rounded-2xl rounded-br-sm px-4 py-3;
+  }
+  .msg-agent {
+    @apply bg-obsidian-800 border border-border rounded-2xl rounded-bl-sm px-4 py-3;
+  }
+}
+
+/* Chat typing indicator */
+.typing-dots span {
+  animation: bounce 1.2s infinite;
+  display: inline-block;
+}
+.typing-dots span:nth-child(2) { animation-delay: 0.2s; }
+.typing-dots span:nth-child(3) { animation-delay: 0.4s; }
+
+@keyframes bounce {
+  0%, 100% { transform: translateY(0); }
+  50%       { transform: translateY(-4px); }
+}
+
+/* Onboarding tour glow */
+@keyframes ring-pulse {
+  0%   { box-shadow: 0 0 0 0 rgba(204, 34, 0, 0.4); }
+  70%  { box-shadow: 0 0 0 10px rgba(204, 34, 0, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(204, 34, 0, 0); }
+}
+.ring-pulse { animation: ring-pulse 2s infinite; }
