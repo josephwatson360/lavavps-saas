@@ -1,0 +1,25 @@
+{
+  "name": "lavavps-saas",
+  "version": "0.1.0",
+  "private": true,
+  "workspaces": [
+    "infra",
+    "lambdas"
+  ],
+  "scripts": {
+    "build":    "npm run build --workspaces --if-present",
+    "test":     "npm test --workspaces --if-present",
+    "lint":     "eslint 'infra/lib/**/*.ts' 'lambdas/**/*.ts'",
+    "synth":    "cd infra && npx cdk synth",
+    "diff":     "cd infra && npx cdk diff",
+    "deploy:network":   "cd infra && npx cdk deploy LavaVPS-Network",
+    "deploy:security":  "cd infra && npx cdk deploy LavaVPS-Security",
+    "deploy:all":       "cd infra && npx cdk deploy --all"
+  },
+  "devDependencies": {
+    "@typescript-eslint/eslint-plugin": "^8.0.0",
+    "@typescript-eslint/parser":        "^8.0.0",
+    "eslint":                           "^9.0.0",
+    "typescript":                       "^5.7.0"
+  }
+}

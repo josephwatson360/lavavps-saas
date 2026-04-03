@@ -1,0 +1,43 @@
+# Dependencies
+node_modules/
+.pnp
+.pnp.js
+
+# Build output
+dist/
+cdk.out/
+*.js.map
+*.d.ts
+
+# CDK asset staging
+.cdk.staging/
+cdk.context.json
+
+# Environment / secrets - NEVER commit these
+.env
+.env.local
+.env.*.local
+*.pem
+*.key
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+npm-debug.log*
+
+# Test coverage
+coverage/
+.nyc_output/
+
+# Lambda build artifacts
+lambdas/*/dist/
+lambdas/layer/dist/
