@@ -9,7 +9,7 @@
 # Never use :latest — always use exact version tags.
 # ─────────────────────────────────────────────────────────────────────────────
 
-ARG OPENCLAW_VERSION=2026.3.24
+ARG OPENCLAW_VERSION=2026.4.2
 FROM ghcr.io/openclaw/openclaw:${OPENCLAW_VERSION}
 
 # ── Runtime user ──────────────────────────────────────────────────────────────

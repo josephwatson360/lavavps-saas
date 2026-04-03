@@ -56,7 +56,7 @@ export const Config = {
   },
 
 
-  openclawVersion: '2026.3.24',
+  openclawVersion: '2026.4.2',
   openclawPort: 18789,
 
   // ── Ollama Heartbeat Service ──────────────────────────────────────────────

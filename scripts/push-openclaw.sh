@@ -16,7 +16,7 @@ set -euo pipefail
 
 ACCOUNT="914964735635"
 REGION="us-east-1"
-OPENCLAW_VERSION="${OPENCLAW_VERSION:-2026.3.24}"
+OPENCLAW_VERSION="${OPENCLAW_VERSION:-2026.4.2}"
 ECR_REPO="${ACCOUNT}.dkr.ecr.${REGION}.amazonaws.com/lavavps-openclaw"
 
 echo "→ OpenClaw version: ${OPENCLAW_VERSION}"
