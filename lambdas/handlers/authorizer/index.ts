@@ -21,6 +21,11 @@ import { createLogger } from '../../layer/src/logger';
 //
 // For WebSocket $connect: token passed as query param ?token=<jwt>
 // For REST: token in Authorization header as Bearer <jwt>
+//
+// NOTE: We verify the ID token (not access token) because:
+//   - Custom Cognito attributes (custom:tenant_id, custom:plan_code, custom:role)
+//     are only available in the ID token, not the access token.
+//   - The frontend sends session.tokens.idToken for all API requests.
 // ─────────────────────────────────────────────────────────────────────────────
 
 const logger = createLogger('authorizerHandler');
@@ -28,7 +33,7 @@ const logger = createLogger('authorizerHandler');
 // Verifier is initialized once outside the handler (reused across warm invocations)
 const verifier = CognitoJwtVerifier.create({
   userPoolId:  process.env.USER_POOL_ID!,
-  tokenUse:    'access',
+  tokenUse:    'id',          // ID token carries custom:tenant_id, custom:plan_code, custom:role
   clientId:    process.env.USER_POOL_CLIENT_ID!,
 });
 
@@ -84,7 +89,7 @@ export const handler = async (
       planCode: planCode  ?? 'starter',
       role:     role      ?? 'owner',
       sub:      payload.sub,
-      email:    payload.email as string ?? '',
+      email:    payload['email'] as string ?? '',
     });
 
   } catch (err) {
