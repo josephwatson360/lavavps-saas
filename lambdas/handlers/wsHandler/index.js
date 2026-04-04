@@ -43,7 +43,7 @@ const handler = async (event) => {
     // ── $connect ────────────────────────────────────────────────────────────
     if (routeKey === '$connect') {
         const ctx = event.requestContext;
-        const tenantId = ctx.authorizer?.tenantId;
+        const tenantId = ctx.authorizer?.claims?.['custom:tenant_id'];
         const ev2 = event;
         const agentId = ev2.queryStringParameters?.agentId;
         if (!tenantId || !agentId) {
