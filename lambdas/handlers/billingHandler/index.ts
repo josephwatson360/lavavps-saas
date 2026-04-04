@@ -26,11 +26,17 @@ const PORTAL_URL   = process.env.PORTAL_URL   ?? 'https://main.d2fwekdsfw5bt0.am
 const PRICE_IDS_SECRET = process.env.PRICE_IDS_SECRET ?? '/openclaw/prod/stripe/price-ids';
 const STRIPE_SECRET_ARN = process.env.STRIPE_SECRET_ARN ?? '/openclaw/prod/stripe/secret-key';
 
+const CORS = {
+  'Access-Control-Allow-Origin':  '*',
+  'Access-Control-Allow-Headers': 'Content-Type,Authorization',
+  'Access-Control-Allow-Methods': 'POST,OPTIONS',
+  'Content-Type': 'application/json',
+};
 function ok(body: unknown, status = 200): APIGatewayProxyResultV2 {
-  return { statusCode: status, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) };
+  return { statusCode: status, headers: CORS, body: JSON.stringify(body) };
 }
 function err(message: string, status = 400): APIGatewayProxyResultV2 {
-  return { statusCode: status, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ message }) };
+  return { statusCode: status, headers: CORS, body: JSON.stringify({ message }) };
 }
 
 async function getStripeKey(): Promise<string> {

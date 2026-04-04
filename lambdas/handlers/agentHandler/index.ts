@@ -19,8 +19,8 @@ const dynamo = DynamoDBDocumentClient.from(new DynamoDBClient({}));
 const TABLE_NAME = process.env.TABLE_NAME!;
 
 const PLAN_AGENT_LIMITS: Record<string, number> = {
-  starter:  1,
-  pro:      5,
+  starter:  2,
+  pro:      4,
   business: 10,
 };
 
