@@ -161,4 +161,23 @@ export const jobsApi = {
     api.delete(`/agents/${agentId}/jobs/${jobId}`),
 };
 
+
+// ── Billing ───────────────────────────────────────────────────────────────────
+
+export const billingApi = {
+  // Create a Stripe Checkout session for plan signup or add-on purchase
+  createCheckout: (params: {
+    type: 'plan' | 'addon_agent' | 'addon_storage';
+    planCode?: string;
+    storageGb?: number;
+  }) =>
+    api.post<{ checkoutUrl: string; sessionId: string }>(
+      '/billing/checkout', params).then(r => r.data),
+
+  // Create a Stripe Customer Portal session (manage plan, payment, invoices, downgrade)
+  createPortalSession: () =>
+    api.post<{ portalUrl: string }>(
+      '/billing/portal', {}).then(r => r.data),
+};
+
 export default api;

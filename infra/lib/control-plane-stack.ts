@@ -395,6 +395,29 @@ export class ControlPlaneStack extends cdk.Stack {
     jobHandlerFn.addToRolePolicy(dynamoPolicy);
     jobHandlerFn.addToRolePolicy(kmsPolicy);
 
+    // ── billingHandler ────────────────────────────────────────────────────
+    const billingHandlerFn = new lambda.Function(this, 'BillingHandlerFn', {
+      ...baseLambdaProps as lambda.FunctionProps,
+      functionName: 'lavavps-billing-handler',
+      description:  'Stripe Checkout + Customer Portal session creation',
+      code:         lambda.Code.fromAsset('lambdas/handlers/billingHandler'),
+      handler:      'index.handler',
+      environment: {
+        PORTAL_URL:          'https://main.d2fwekdsfw5bt0.amplifyapp.com',
+        STRIPE_SECRET_ARN:   '/openclaw/prod/stripe/secret-key',
+        PRICE_IDS_SECRET:    '/openclaw/prod/stripe/price-ids',
+      },
+    });
+    billingHandlerFn.addToRolePolicy(dynamoPolicy);
+    billingHandlerFn.addToRolePolicy(kmsPolicy);
+    // Grant access to Stripe secret key + price IDs
+    billingHandlerFn.addToRolePolicy(new iam.PolicyStatement({
+      actions:   ['secretsmanager:GetSecretValue'],
+      resources: [
+        `arn:aws:secretsmanager:${Config.region}:${Config.account}:secret:/openclaw/prod/stripe/*`,
+      ],
+    }));
+
         // ── API Gateway REST API ───────────────────────────────────────────────
     const logGroup = new logs.LogGroup(this, 'ApiLogGroup', {
       logGroupName:  '/openclaw/api/access',
@@ -417,7 +440,7 @@ export class ControlPlaneStack extends cdk.Stack {
         throttlingBurstLimit:  1000,
       },
       defaultCorsPreflightOptions: {
-        allowOrigins: ['https://lavavps.ai', 'https://www.lavavps.ai', 'http://localhost:3000'],
+        allowOrigins: ['https://lavavps.ai', 'https://www.lavavps.ai', 'https://main.d2fwekdsfw5bt0.amplifyapp.com', 'http://localhost:3000'],
         allowHeaders: ['Content-Type', 'Authorization'],
         allowMethods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
       },
@@ -495,6 +518,13 @@ export class ControlPlaneStack extends cdk.Stack {
     const jobResource = jobsResource.addResource('{jobId}');
     jobResource.addMethod('GET',    lambdaIntegration(jobHandlerFn), authOptions);
     jobResource.addMethod('DELETE', lambdaIntegration(jobHandlerFn), authOptions);
+
+    // /billing/checkout + /billing/portal
+    const billingResource  = this.restApi.root.addResource('billing');
+    const checkoutResource = billingResource.addResource('checkout');
+    const portalResource   = billingResource.addResource('portal');
+    checkoutResource.addMethod('POST', lambdaIntegration(billingHandlerFn), authOptions);
+    portalResource.addMethod('POST',   lambdaIntegration(billingHandlerFn), authOptions);
 
     // ── WebSocket API (API Gateway v2) ────────────────────────────────────
     this.wsApi = new apigwv2.CfnApi(this, 'WsApi', {
