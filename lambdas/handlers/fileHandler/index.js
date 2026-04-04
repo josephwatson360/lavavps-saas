@@ -44,9 +44,13 @@ const handler = async (event) => {
     // Fetch tenant record for quota
     const tenantResult = await dynamo.send(new lib_dynamodb_1.GetCommand({
         TableName: TABLE_NAME,
-        Key: { pk: `TENANT#${tenantId}`, sk: `TENANT#${tenantId}` },
+        Key: { pk: `TENANT#${tenantId}`, sk: 'PROFILE' },
     }));
-    const storageQuotaGb = tenantResult.Item?.storage_quota_gb ?? 5;
+    const BASE_STORAGE_GB = { starter: 5, pro: 50, business: 100 };
+    const planCode = tenantResult.Item?.plan_code ?? 'starter';
+    const storageBase = BASE_STORAGE_GB[planCode] ?? 5;
+    const storageAddon = parseInt(tenantResult.Item?.storage_addon_gb ?? '0', 10);
+    const storageQuotaGb = storageBase + storageAddon;
     const storageUsedBytes = tenantResult.Item?.storage_used_bytes ?? 0;
     const storageQuotaBytes = storageQuotaGb * 1024 * 1024 * 1024;
     const s3Prefix = `workspace/${tenantId}/${agentId}/`;
@@ -123,7 +127,7 @@ const handler = async (event) => {
         // Update used bytes estimate (actual tracking via S3 event in Phase 8)
         await dynamo.send(new lib_dynamodb_1.UpdateCommand({
             TableName: TABLE_NAME,
-            Key: { pk: `TENANT#${tenantId}`, sk: `TENANT#${tenantId}` },
+            Key: { pk: `TENANT#${tenantId}`, sk: 'PROFILE' },
             UpdateExpression: 'ADD storage_used_bytes :size',
             ExpressionAttributeValues: { ':size': body.size },
         }));
@@ -145,7 +149,7 @@ const handler = async (event) => {
             if (size > 0) {
                 await dynamo.send(new lib_dynamodb_1.UpdateCommand({
                     TableName: TABLE_NAME,
-                    Key: { pk: `TENANT#${tenantId}`, sk: `TENANT#${tenantId}` },
+                    Key: { pk: `TENANT#${tenantId}`, sk: 'PROFILE' },
                     UpdateExpression: 'ADD storage_used_bytes :size',
                     ExpressionAttributeValues: { ':size': -size },
                 }));

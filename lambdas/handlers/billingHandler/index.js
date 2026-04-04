@@ -176,7 +176,7 @@ async function handler(event) {
     
   // GET /billing — live billing info from DynamoDB (source of truth)
   if (method === 'GET' && path.includes('/billing')) {
-    const item = await ddb.send(new GetItemCommand({
+    const item = await ddb.send(new (require("@aws-sdk/client-dynamodb").GetItemCommand)({
       TableName: TABLE_NAME,
       Key: { pk: { S: `TENANT#${tenantId}` }, sk: { S: 'PROFILE' } },
     }));
