@@ -176,7 +176,7 @@ export function useAgentChat({ agentId }: UseAgentChatOptions) {
   }, [agentId, addMessage, updateMessage]);
 
   // ── Send message ───────────────────────────────────────────────────────────
-  const sendMessage = useCallback((content: string) => {
+  const sendMessage = useCallback((content: string, attachments?: import('@/api/types').ChatAttachment[]) => {
     if (!content.trim()) return;
     if (wsRef.current?.readyState !== WebSocket.OPEN) {
       connect();
@@ -185,13 +185,17 @@ export function useAgentChat({ agentId }: UseAgentChatOptions) {
 
     const msgId = `user-${Date.now()}`;
     addMessage(agentId, {
-      id:        msgId,
-      role:      'user',
-      content:   content.trim(),
-      timestamp: Date.now(),
+      id:          msgId,
+      role:        'user',
+      content:     content.trim(),
+      timestamp:   Date.now(),
+      attachments: attachments,
     });
-
-    wsRef.current.send(JSON.stringify({ action: 'message', content: content.trim() }));
+    wsRef.current.send(JSON.stringify({
+      action:      'message',
+      content:     content.trim(),
+      attachments: attachments ?? [],
+    }));
     setIsTyping(true);
   }, [agentId, addMessage, connect]);
 
