@@ -218,7 +218,7 @@ export class BillingStack extends cdk.Stack {
       environment: {
         ...baseEnv,
         PROVISIONING_SM_ARN: stateMachine.stateMachineArn,
-        WEBHOOK_SECRET_ARN:  stripeWebhookSecret.secretArn,
+        WEBHOOK_SECRET_ARN:  stripeWebhookSecret.secretName,
       },
     });
 
