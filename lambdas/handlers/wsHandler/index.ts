@@ -7,51 +7,101 @@ import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
 import { DynamoDBDocumentClient, PutCommand, DeleteCommand, GetCommand, UpdateCommand } from '@aws-sdk/lib-dynamodb';
 import { createLogger } from '../../layer/src/logger';
 
-// ─────────────────────────────────────────────────────────────────────────────
-// wsHandler
-//
-// WebSocket routes: $connect, $disconnect, $default
-//
-// $connect:
-//   - Validates JWT from query param ?token=<jwt>
-//   - Looks up agent's ECS task private IP from DynamoDB
-//   - Stores connectionId -> {tenantId, agentId, taskIp} in DynamoDB (TTL: 2h)
-//   - Updates last_activity_at on agent record
-//
-// $disconnect:
-//   - Cleans up connection record from DynamoDB
-//
-// $default:
-//   - Forwards message from portal to OpenClaw WebSocket on task private IP
-//   - Receives response from OpenClaw and relays back to portal via APIGW management API
-//   - Updates last_activity_at to reset idle timeout
-//
-// Note: Auth mode = trusted-proxy on OpenClaw.
-//   ALB handles Cognito auth for REST/HTTP requests.
-//   WebSocket connections through API Gateway v2 use the Cognito authorizer
-//   configured on the $connect route.
-// ─────────────────────────────────────────────────────────────────────────────
-
 const logger = createLogger('wsHandler');
 const dynamo = DynamoDBDocumentClient.from(new DynamoDBClient({}));
 
-const TABLE_NAME      = process.env.TABLE_NAME!;
-const OPENCLAW_PORT   = process.env.OPENCLAW_PORT ?? '18789';
-const WS_ENDPOINT     = process.env.WS_MANAGEMENT_ENDPOINT!; // API GW management endpoint
-const WS_TTL_SECONDS  = 7200; // 2 hours
+const TABLE_NAME     = process.env.TABLE_NAME!;
+const OPENCLAW_PORT  = process.env.OPENCLAW_PORT ?? '18789';
+const WS_TTL_SECONDS = 7200;
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Persistent connection pool: poolKey → WebSocket
+// Survives across Lambda invocations within the same warm container.
+// Each WebSocket stays open, forwarding ALL streaming chunks immediately.
+// ─────────────────────────────────────────────────────────────────────────────
+interface PoolEntry {
+  ws:           WebSocket;
+  connectionId: string;
+  apigw:        ApiGatewayManagementApiClient;
+}
+
+const pool = new Map<string, PoolEntry>();
+
+function poolKey(taskIp: string, connectionId: string): string {
+  return `${taskIp}::${connectionId}`;
+}
+
+async function getOrCreateOpenClawWs(
+  taskIp:       string,
+  connectionId: string,
+  apigw:        ApiGatewayManagementApiClient,
+): Promise<WebSocket> {
+  const key      = poolKey(taskIp, connectionId);
+  const existing = pool.get(key);
+
+  if (existing && existing.ws.readyState === (globalThis as any).WebSocket.OPEN) {
+    existing.connectionId = connectionId;
+    existing.apigw        = apigw;
+    return existing.ws;
+  }
+
+  if (existing) {
+    try { existing.ws.close(); } catch { /* ignore */ }
+    pool.delete(key);
+  }
+
+  const WS = (globalThis as any).WebSocket as typeof WebSocket;
+  const ws  = new WS(`ws://${taskIp}:${OPENCLAW_PORT}`);
+  const entry: PoolEntry = { ws, connectionId, apigw };
+  pool.set(key, entry);
+
+  // ── Relay EVERY chunk immediately to portal ───────────────────────────────
+  ws.onmessage = async (event: MessageEvent) => {
+    const data = typeof event.data === 'string' ? event.data : null;
+    if (!data) return;
+    const current = pool.get(key);
+    if (!current) return;
+    try {
+      await current.apigw.send(new PostToConnectionCommand({
+        ConnectionId: current.connectionId,
+        Data:         Buffer.from(data),
+      }));
+    } catch (err: unknown) {
+      const status = (err as { $metadata?: { httpStatusCode?: number } }).$metadata?.httpStatusCode;
+      if (status === 410) pool.delete(key); // portal gone
+    }
+  };
+
+  ws.onerror = () => { pool.delete(key); };
+  ws.onclose = () => { pool.delete(key); };
+
+  // Wait for open (max 10s)
+  await new Promise<void>((resolve, reject) => {
+    const timeout = setTimeout(() => reject(new Error('OpenClaw connect timeout')), 10000);
+    ws.onopen  = () => { clearTimeout(timeout); resolve(); };
+    const orig = ws.onerror;
+    ws.onerror = (e) => {
+      clearTimeout(timeout);
+      if (orig) orig.call(ws, e);
+      reject(new Error('OpenClaw connect error'));
+    };
+  });
+
+  return ws;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 export const handler: APIGatewayProxyWebsocketHandlerV2 = async (event): Promise<APIGatewayProxyResultV2> => {
-
   const { connectionId, routeKey, domainName, stage } = event.requestContext;
   const apigw = new ApiGatewayManagementApiClient({
     endpoint: `https://${domainName}/${stage}`,
   });
 
-  // ── $connect ────────────────────────────────────────────────────────────
+  // ── $connect ──────────────────────────────────────────────────────────────
   if (routeKey === '$connect') {
-    const ctx = event.requestContext as unknown as Record<string, Record<string, string>>;
+    const ctx      = event.requestContext as unknown as Record<string, Record<string, string>>;
     const tenantId = ctx.authorizer?.tenantId;
-    const ev2 = event as unknown as Record<string, Record<string, string>>;
+    const ev2      = event as unknown as Record<string, Record<string, string>>;
     const agentId  = ev2.queryStringParameters?.agentId;
 
     if (!tenantId || !agentId) {
@@ -59,7 +109,6 @@ export const handler: APIGatewayProxyWebsocketHandlerV2 = async (event): Promise
       return { statusCode: 401 };
     }
 
-    // Fetch agent record to get task IP
     const agentResult = await dynamo.send(new GetCommand({
       TableName: TABLE_NAME,
       Key: { pk: `TENANT#${tenantId}`, sk: `AGENT#${agentId}` },
@@ -69,35 +118,27 @@ export const handler: APIGatewayProxyWebsocketHandlerV2 = async (event): Promise
       return { statusCode: 404 };
     }
 
-    const item      = agentResult.Item;
-    const status    = item.status as string;
-    const taskIp    = item.task_private_ip as string | undefined;
+    const item   = agentResult.Item;
+    const status = item.status as string;
+    const taskIp = item.task_private_ip as string | undefined;
 
     if (status !== 'RUNNING' || !taskIp) {
-      // Agent not running — tell portal to call /start first
-      logger.warn('WS connect: agent not running', {
-        tenant_id: tenantId, agent_id: agentId, status,
-      });
-      return { statusCode: 503 }; // Service Unavailable - agent needs wake
+      logger.warn('WS connect: agent not running', { connectionId, tenantId, agentId, status });
+      return { statusCode: 503 };
     }
 
-    // Store connection → agent mapping (TTL: 2 hours)
-    const now     = Math.floor(Date.now() / 1000);
+    const now = Math.floor(Date.now() / 1000);
     await dynamo.send(new PutCommand({
       TableName: TABLE_NAME,
       Item: {
-        pk:           `WS#${connectionId}`,
-        sk:           `WS#${connectionId}`,
-        connection_id: connectionId,
-        tenant_id:     tenantId,
-        agent_id:      agentId,
-        task_ip:       taskIp,
-        connected_at:  new Date().toISOString(),
-        ttl:           now + WS_TTL_SECONDS,
+        pk: `WS#${connectionId}`, sk: `WS#${connectionId}`,
+        connection_id: connectionId, tenant_id: tenantId,
+        agent_id: agentId, task_ip: taskIp,
+        connected_at: new Date().toISOString(),
+        ttl: now + WS_TTL_SECONDS,
       },
     }));
 
-    // Update agent activity
     await dynamo.send(new UpdateCommand({
       TableName: TABLE_NAME,
       Key: { pk: `TENANT#${tenantId}`, sk: `AGENT#${agentId}` },
@@ -105,39 +146,52 @@ export const handler: APIGatewayProxyWebsocketHandlerV2 = async (event): Promise
       ExpressionAttributeValues: { ':now': new Date().toISOString() },
     }));
 
-    logger.info('WS connected', { connection_id: connectionId, tenant_id: tenantId, agent_id: agentId });
+    // Pre-warm the OpenClaw connection so first message has zero extra latency
+    try {
+      await getOrCreateOpenClawWs(taskIp, connectionId, apigw);
+      logger.info('WS connected + OpenClaw pre-warmed', { connectionId, tenantId, agentId });
+    } catch (err) {
+      logger.warn('OpenClaw pre-warm failed — will retry on first message', {
+        connectionId, taskIp, error: err instanceof Error ? err.message : 'unknown',
+      });
+    }
+
     return { statusCode: 200 };
   }
 
-  // ── $disconnect ─────────────────────────────────────────────────────────
+  // ── $disconnect ───────────────────────────────────────────────────────────
   if (routeKey === '$disconnect') {
     await dynamo.send(new DeleteCommand({
       TableName: TABLE_NAME,
       Key: { pk: `WS#${connectionId}`, sk: `WS#${connectionId}` },
     }));
-
-    logger.info('WS disconnected', { connection_id: connectionId });
+    for (const [key, entry] of pool.entries()) {
+      if (entry.connectionId === connectionId) {
+        try { entry.ws.close(1000, 'portal disconnected'); } catch { /* ignore */ }
+        pool.delete(key);
+      }
+    }
+    logger.info('WS disconnected', { connectionId });
     return { statusCode: 200 };
   }
 
-  // ── $default — relay message to OpenClaw ─────────────────────────────────
+  // ── $default — relay to OpenClaw, stream all chunks back ─────────────────
   const connResult = await dynamo.send(new GetCommand({
     TableName: TABLE_NAME,
     Key: { pk: `WS#${connectionId}`, sk: `WS#${connectionId}` },
   }));
 
   if (!connResult.Item) {
-    logger.warn('WS message: no connection record', { connection_id: connectionId });
-    return { statusCode: 410 }; // Gone
+    logger.warn('WS message: no connection record', { connectionId });
+    return { statusCode: 410 };
   }
 
-  const conn      = connResult.Item;
-  const taskIp    = conn.task_ip    as string;
-  const tenantId  = conn.tenant_id  as string;
-  const agentId   = conn.agent_id   as string;
-  const body      = event.body ?? '';
+  const conn     = connResult.Item;
+  const taskIp   = conn.task_ip   as string;
+  const tenantId = conn.tenant_id as string;
+  const agentId  = conn.agent_id  as string;
+  const body     = event.body ?? '';
 
-  // Update activity timestamp (resets idle timer)
   await dynamo.send(new UpdateCommand({
     TableName: TABLE_NAME,
     Key: { pk: `TENANT#${tenantId}`, sk: `AGENT#${agentId}` },
@@ -145,78 +199,22 @@ export const handler: APIGatewayProxyWebsocketHandlerV2 = async (event): Promise
     ExpressionAttributeValues: { ':now': new Date().toISOString() },
   }));
 
-  // Forward message to OpenClaw WebSocket
-  const openclawWsUrl = `ws://${taskIp}:${OPENCLAW_PORT}`;
-
   try {
-    // Use a persistent WS connection in production; for simplicity here we
-    // use a single-message WebSocket request pattern.
-    // In production, the wsHandler maintains a connection pool per task IP.
-    const response = await forwardToOpenClaw(openclawWsUrl, body);
-
-    if (response) {
-      await apigw.send(new PostToConnectionCommand({
-        ConnectionId: connectionId,
-        Data:         Buffer.from(response),
-      }));
-    }
+    const openclawWs = await getOrCreateOpenClawWs(taskIp, connectionId, apigw);
+    openclawWs.send(body);
+    logger.info('Message forwarded to OpenClaw', { connectionId, tenantId, agentId });
   } catch (err) {
-    logger.error('Failed to relay message to OpenClaw', {
-      tenant_id:  tenantId,
-      agent_id:   agentId,
-      task_ip:    taskIp,
-      error:      err instanceof Error ? err.message : 'unknown',
+    logger.error('Failed to relay to OpenClaw', {
+      tenantId, agentId, taskIp,
+      error: err instanceof Error ? err.message : 'unknown',
     });
-
-    // Send error back to portal
     try {
       await apigw.send(new PostToConnectionCommand({
         ConnectionId: connectionId,
-        Data:         Buffer.from(JSON.stringify({
-          type:    'error',
-          message: 'Agent connection error. Please refresh and try again.',
-        })),
+        Data: Buffer.from(JSON.stringify({ type: 'error', message: 'Agent connection error. Reconnecting...' })),
       }));
-    } catch { /* connection may have closed */ }
+    } catch { /* portal may have closed */ }
   }
 
   return { statusCode: 200 };
 };
-
-// ── Forward single message to OpenClaw WebSocket ──────────────────────────────
-// This uses a simple request-response pattern. In Phase 7 we'll add
-// connection pooling for streaming responses.
-async function forwardToOpenClaw(wsUrl: string, message: string): Promise<string | null> {
-  return new Promise((resolve, reject) => {
-    // Node.js 24 has native WebSocket support
-    const ws = new (globalThis as unknown as { WebSocket: typeof WebSocket }).WebSocket(wsUrl);
-    let responded = false;
-    const timeout = setTimeout(() => {
-      if (!responded) {
-        ws.close();
-        reject(new Error('OpenClaw WebSocket timeout'));
-      }
-    }, 25000);
-
-    ws.onopen = () => ws.send(message);
-
-    ws.onmessage = (event: MessageEvent) => {
-      responded = true;
-      clearTimeout(timeout);
-      ws.close();
-      resolve(typeof event.data === 'string' ? event.data : null);
-    };
-
-    ws.onerror = (err: Event) => {
-      clearTimeout(timeout);
-      reject(new Error(`OpenClaw WS error: ${err}`));
-    };
-
-    ws.onclose = () => {
-      if (!responded) {
-        clearTimeout(timeout);
-        resolve(null);
-      }
-    };
-  });
-}
