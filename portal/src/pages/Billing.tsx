@@ -1,21 +1,30 @@
-import { useState } from 'react';
-import { CreditCard, HardDrive, Plus, ExternalLink, CheckCircle2, Loader2, Settings } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { useSearchParams } from 'react-router-dom';
+import { fetchAuthSession } from 'aws-amplify/auth';
+import { CreditCard, HardDrive, Plus, CheckCircle2, Loader2, Settings, AlertCircle } from 'lucide-react';
 import { billingApi } from '@/api/client';
 import { useStore, toast } from '@/store/useStore';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Billing page
 //
-// - Current plan display + usage
+// - Current plan display + usage (reads from JWT for plan/agent limits)
+// - On ?checkout=success: force-refreshes JWT to pick up new plan/addon limits
 // - Add-on purchases (agents, storage) → Stripe Checkout via backend
 // - Plan upgrades → Stripe Checkout via backend
-// - Plan downgrades + management (payment, invoices) → Stripe Customer Portal
+// - Plan management → Stripe Customer Portal
 // ─────────────────────────────────────────────────────────────────────────────
 
 const PLAN_FEATURES: Record<string, string[]> = {
   starter:  ['2 agents', '5 GB storage', '0.25 vCPU / 1 GB RAM', 'Discord + Telegram Channel Integrations', '15-min idle timeout'],
   pro:      ['4 agents', '50 GB storage', '0.5 vCPU / 1 GB RAM', 'Ralph Loop / Auto Tasks', 'Discord + Telegram + WhatsApp Channel Integrations', '30-min idle timeout'],
   business: ['10 agents', '100 GB storage', '1 vCPU / 2 GB RAM', 'All Channel Integrations', 'Audit logs', 'Priority API', '60-min idle timeout'],
+};
+
+const BASE_AGENT_LIMIT: Record<string, number> = {
+  starter: 2,
+  pro:     4,
+  business: 10,
 };
 
 const STORAGE_ADDONS = [
@@ -25,14 +34,52 @@ const STORAGE_ADDONS = [
 ];
 
 export function Billing() {
-  const { tenant, agents } = useStore();
-  const plan      = tenant?.planCode ?? 'starter';
-  const features  = PLAN_FEATURES[plan] ?? [];
-  const agentMax  = { starter: 2, pro: 4, business: 10 }[plan] ?? 2;
-  const usedAgents = agents.length;
-  const [loading, setLoading] = useState<string | null>(null);
+  const { tenant, agents, setTenant } = useStore();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const [loading, setLoading]           = useState<string | null>(null);
+  const [refreshing, setRefreshing]     = useState(false);
+  const [checkoutStatus, setCheckoutStatus] = useState<'success' | 'cancelled' | null>(null);
 
-  async function handleCheckout(type: 'plan' | 'addon_agent' | 'addon_storage', extra?: { planCode?: string; storageGb?: number }) {
+  const plan         = tenant?.planCode ?? 'starter';
+  const features     = PLAN_FEATURES[plan] ?? [];
+  const baseLimit    = BASE_AGENT_LIMIT[plan] ?? 2;
+  const addonAgents  = parseInt((tenant as any)?.addonAgents ?? '0', 10) || 0;
+  const agentMax     = baseLimit + addonAgents;
+  const usedAgents   = agents.length;
+
+  // On checkout success/cancel: handle URL params and refresh JWT
+  useEffect(() => {
+    const status = searchParams.get('checkout');
+    if (!status) return;
+
+    setCheckoutStatus(status as 'success' | 'cancelled');
+
+    if (status === 'success') {
+      // Force-refresh the JWT so updated plan/addon claims are reflected immediately
+      setRefreshing(true);
+      fetchAuthSession({ forceRefresh: true })
+        .then(session => {
+          const claims = session.tokens?.idToken?.payload;
+          if (claims && tenant) {
+            setTenant({
+              ...tenant,
+              planCode:    (claims['custom:plan_code'] as string) ?? tenant.planCode,
+              addonAgents: (claims['custom:addon_agents'] as string) ?? '0',
+            } as any);
+          }
+        })
+        .catch(() => { /* non-fatal — user can refresh manually */ })
+        .finally(() => setRefreshing(false));
+    }
+
+    // Clean up URL params without triggering a navigation
+    setSearchParams({}, { replace: true });
+  }, []);
+
+  async function handleCheckout(
+    type: 'plan' | 'addon_agent' | 'addon_storage',
+    extra?: { planCode?: string; storageGb?: number },
+  ) {
     const key = `${type}_${extra?.planCode ?? extra?.storageGb ?? ''}`;
     setLoading(key);
     try {
@@ -42,8 +89,9 @@ export function Billing() {
         storageGb: extra?.storageGb,
       });
       window.location.href = checkoutUrl;
-    } catch {
-      toast.error('Failed to start checkout. Please try again.');
+    } catch (err: any) {
+      const msg = err?.response?.data?.message ?? 'Failed to start checkout. Please try again.';
+      toast.error(msg);
       setLoading(null);
     }
   }
@@ -59,9 +107,7 @@ export function Billing() {
     }
   }
 
-  function isLoading(key: string) {
-    return loading === key;
-  }
+  function isLoading(key: string) { return loading === key; }
 
   return (
     <div className="max-w-3xl mx-auto px-6 py-8">
@@ -69,6 +115,27 @@ export function Billing() {
         <h1 className="font-display text-2xl font-bold text-text">Billing & Plan</h1>
         <p className="text-sm text-muted mt-1">Manage your subscription and add-ons</p>
       </div>
+
+      {/* Checkout status banners */}
+      {checkoutStatus === 'success' && (
+        <div className="flex items-center gap-3 p-4 rounded-xl bg-green-900/20 border border-green-700/30 mb-6">
+          <CheckCircle2 size={16} className="text-green-400 flex-shrink-0" />
+          <div>
+            <p className="text-sm font-medium text-green-300">Purchase successful!</p>
+            <p className="text-xs text-green-400/70 mt-0.5">
+              {refreshing ? 'Refreshing your account limits...' : 'Your account has been updated.'}
+            </p>
+          </div>
+          {refreshing && <Loader2 size={14} className="animate-spin text-green-400 ml-auto flex-shrink-0" />}
+        </div>
+      )}
+
+      {checkoutStatus === 'cancelled' && (
+        <div className="flex items-center gap-3 p-4 rounded-xl bg-obsidian-800 border border-border mb-6">
+          <AlertCircle size={16} className="text-muted flex-shrink-0" />
+          <p className="text-sm text-muted">Checkout was cancelled — no charge was made.</p>
+        </div>
+      )}
 
       {/* Current plan */}
       <div className="card p-6 mb-6">
@@ -96,6 +163,11 @@ export function Billing() {
               {usedAgents}
               <span className="text-sm font-normal text-muted"> / {agentMax}</span>
             </p>
+            {addonAgents > 0 && (
+              <p className="text-xs text-muted mt-0.5">
+                {baseLimit} base + {addonAgents} add-on
+              </p>
+            )}
           </div>
           <div className="bg-obsidian-800 rounded-xl p-3">
             <p className="text-xs text-muted mb-1">Storage Pool</p>
@@ -115,7 +187,6 @@ export function Billing() {
           ))}
         </div>
 
-        {/* Manage note */}
         <div className="mt-4 pt-4 border-t border-border">
           <p className="text-xs text-muted">
             To <strong className="text-text">downgrade</strong> your plan, update payment method, or view invoices, click{' '}
@@ -193,7 +264,7 @@ export function Billing() {
               <PlanCard
                 name="Pro"
                 price="$79/mo"
-                features={['4 agents', '50 GB storage', 'Ralph Loop / Auto Tasks', 'Discord + Telegram + WhatsApp Channel Integrations', '30-min idle timeout']}
+                features={['4 agents', '50 GB storage', 'Ralph Loop / Auto Tasks', 'Discord + Telegram + WhatsApp', '30-min idle timeout']}
                 onUpgrade={() => handleCheckout('plan', { planCode: 'pro' })}
                 loading={isLoading('plan_pro')}
                 highlight
@@ -223,11 +294,11 @@ export function Billing() {
 }
 
 function PlanCard({ name, price, features, onUpgrade, loading, highlight }: {
-  name: string;
-  price: string;
-  features: string[];
+  name:      string;
+  price:     string;
+  features:  string[];
   onUpgrade: () => void;
-  loading?: boolean;
+  loading?:  boolean;
   highlight?: boolean;
 }) {
   return (

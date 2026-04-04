@@ -149,7 +149,7 @@ async function routeEvent(event) {
     switch (event.type) {
         case 'checkout.session.completed': {
             const session = event.data.object;
-            const addonType = session.metadata?.addon_type;
+            const addonType = session.metadata?.type;
             if (addonType === 'additional_agent') {
                 // Add-on: provision new agent for existing tenant
                 await startProvisioning({
@@ -231,8 +231,8 @@ async function addStorage(params) {
     const { UpdateCommand } = await Promise.resolve().then(() => __importStar(require('@aws-sdk/lib-dynamodb')));
     await dynamo.send(new UpdateCommand({
         TableName: TABLE_NAME,
-        Key: { pk: `TENANT#${tenantId}`, sk: `TENANT#${tenantId}` },
-        UpdateExpression: 'ADD storage_quota_gb :gb',
+        Key: { pk: `TENANT#${tenantId}`, sk: "PROFILE" },
+        UpdateExpression: 'ADD storage_addon_gb :gb',
         ExpressionAttributeValues: { ':gb': params.storageGb },
     }));
     logger.info('Storage quota increased', { tenant_id: tenantId, added_gb: params.storageGb });
@@ -251,7 +251,7 @@ async function updatePlan(params) {
     const { UpdateCommand } = await Promise.resolve().then(() => __importStar(require('@aws-sdk/lib-dynamodb')));
     await dynamo.send(new UpdateCommand({
         TableName: TABLE_NAME,
-        Key: { pk: `TENANT#${tenantId}`, sk: `TENANT#${tenantId}` },
+        Key: { pk: `TENANT#${tenantId}`, sk: "PROFILE" },
         UpdateExpression: 'SET plan_code = :plan, subscription_status = :status, updated_at = :now',
         ExpressionAttributeValues: {
             ':plan': params.newPlanCode,
@@ -275,7 +275,7 @@ async function suspendTenant(params) {
     const { UpdateCommand } = await Promise.resolve().then(() => __importStar(require('@aws-sdk/lib-dynamodb')));
     await dynamo.send(new UpdateCommand({
         TableName: TABLE_NAME,
-        Key: { pk: `TENANT#${tenantId}`, sk: `TENANT#${tenantId}` },
+        Key: { pk: `TENANT#${tenantId}`, sk: "PROFILE" },
         UpdateExpression: 'SET #status = :s, subscription_status = :sub, suspended_at = :now, updated_at = :now',
         ExpressionAttributeNames: { '#status': 'status' },
         ExpressionAttributeValues: {

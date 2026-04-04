@@ -1,7 +1,8 @@
 import { APIGatewayProxyEvent, APIGatewayProxyResult } from 'aws-lambda';
 import { SecretsManagerClient, GetSecretValueCommand } from '@aws-sdk/client-secrets-manager';
 import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
-import { DynamoDBDocumentClient, GetCommand, PutCommand, QueryCommand } from '@aws-sdk/lib-dynamodb';
+import { DynamoDBDocumentClient, GetCommand, PutCommand, UpdateCommand, QueryCommand } from '@aws-sdk/lib-dynamodb';
+import { CognitoIdentityProviderClient, AdminUpdateUserAttributesCommand } from '@aws-sdk/client-cognito-identity-provider';
 import { SFNClient, StartExecutionCommand } from '@aws-sdk/client-sfn';
 import { createHmac } from 'crypto';
 import { createLogger } from '../../layer/src/logger';
@@ -17,30 +18,34 @@ import { createLogger } from '../../layer/src/logger';
 //   3. Webhook signing secret stored in Secrets Manager — never in env vars
 //
 // Events handled:
-//   checkout.session.completed       → provisioningStateMachine (new customer)
-//   customer.subscription.updated    → updatePlanHandler (plan change)
-//   customer.subscription.deleted    → suspendTenantHandler (cancellation)
+//   checkout.session.completed       → routes by metadata.type:
+//     type = 'plan'                  → startProvisioning (new_tenant)
+//     type = 'addon_agent'           → incrementAddonAgents
+//     type = 'addon_storage'         → addStorage
+//   customer.subscription.updated    → updatePlan
+//   customer.subscription.deleted    → suspendTenant
 //   invoice.payment_failed           → paymentFailureHandler
 //
-// Add-on events (checkout.session.completed with metadata.type = 'addon'):
-//   additional_agent                 → provisioningStateMachine (agent only)
-//   storage_addon                    → addStorageHandler
+// IMPORTANT: metadata key is 'type' (not 'addon_type') — must match billingHandler.
+// IMPORTANT: DynamoDB PROFILE record uses sk = 'PROFILE' (not 'TENANT#${tenantId}').
 // ─────────────────────────────────────────────────────────────────────────────
 
-const logger  = createLogger('stripeWebhookHandler');
-const secrets = new SecretsManagerClient({});
-const dynamo  = DynamoDBDocumentClient.from(new DynamoDBClient({}));
-const sfn     = new SFNClient({});
+const logger   = createLogger('stripeWebhookHandler');
+const secrets  = new SecretsManagerClient({});
+const dynamo   = DynamoDBDocumentClient.from(new DynamoDBClient({}));
+const cognito  = new CognitoIdentityProviderClient({});
+const sfn      = new SFNClient({});
 
-const TABLE_NAME                = process.env.TABLE_NAME!;
-const PROVISIONING_SM_ARN       = process.env.PROVISIONING_SM_ARN!;
-const WEBHOOK_SECRET_ARN        = process.env.WEBHOOK_SECRET_ARN!;
+const TABLE_NAME          = process.env.TABLE_NAME!;
+const PROVISIONING_SM_ARN = process.env.PROVISIONING_SM_ARN!;
+const WEBHOOK_SECRET_ARN  = process.env.WEBHOOK_SECRET_ARN!;
+const USER_POOL_ID        = process.env.USER_POOL_ID!;
 
 // Cache the webhook secret in Lambda memory (warm invocations reuse it)
 let cachedWebhookSecret: string | null = null;
 
 export const handler = async (event: APIGatewayProxyEvent): Promise<APIGatewayProxyResult> => {
-  // ── Step 1: HMAC verification ──────────────────────────────────────────
+  // ── Step 1: HMAC verification ──────────────────────────────────────────────
   const signature = event.headers['stripe-signature'] ?? event.headers['Stripe-Signature'];
   if (!signature) {
     logger.warn('Webhook rejected: missing Stripe-Signature header');
@@ -49,12 +54,12 @@ export const handler = async (event: APIGatewayProxyEvent): Promise<APIGatewayPr
 
   const rawBody = event.body ?? '';
 
-  // Fetch signing secret from Secrets Manager (cached in Lambda memory)
   if (!cachedWebhookSecret) {
     try {
       const result = await secrets.send(new GetSecretValueCommand({ SecretId: WEBHOOK_SECRET_ARN }));
       const data   = JSON.parse(result.SecretString ?? '{}');
-      cachedWebhookSecret = data.webhookSigningSecret;
+      // Secret may be stored as plain string or as JSON with webhookSigningSecret key
+      cachedWebhookSecret = data.webhookSigningSecret ?? result.SecretString ?? '';
     } catch (err) {
       logger.error('Failed to fetch webhook signing secret', {
         error: err instanceof Error ? err.message : 'unknown',
@@ -68,7 +73,7 @@ export const handler = async (event: APIGatewayProxyEvent): Promise<APIGatewayPr
     return { statusCode: 400, body: 'Invalid signature' };
   }
 
-  // ── Step 2: Parse event ────────────────────────────────────────────────
+  // ── Step 2: Parse event ────────────────────────────────────────────────────
   let stripeEvent: StripeEvent;
   try {
     stripeEvent = JSON.parse(rawBody) as StripeEvent;
@@ -81,8 +86,7 @@ export const handler = async (event: APIGatewayProxyEvent): Promise<APIGatewayPr
 
   logger.info('Webhook received', { event_id: eventId, event_type: eventType });
 
-  // ── Step 3: Idempotency check ──────────────────────────────────────────
-  // If this event was already processed, return 200 immediately
+  // ── Step 3: Idempotency check ──────────────────────────────────────────────
   const existing = await dynamo.send(new GetCommand({
     TableName: TABLE_NAME,
     Key: { pk: `STRIPE_EVENT#${eventId}`, sk: `STRIPE_EVENT#${eventId}` },
@@ -93,7 +97,7 @@ export const handler = async (event: APIGatewayProxyEvent): Promise<APIGatewayPr
     return { statusCode: 200, body: 'Already processed' };
   }
 
-  // ── Step 4: Route to handler ───────────────────────────────────────────
+  // ── Step 4: Route to handler ───────────────────────────────────────────────
   try {
     await routeEvent(stripeEvent);
   } catch (err) {
@@ -101,12 +105,12 @@ export const handler = async (event: APIGatewayProxyEvent): Promise<APIGatewayPr
       event_id:   eventId,
       event_type: eventType,
       error:      err instanceof Error ? err.message : 'unknown',
+      stack:      err instanceof Error ? err.stack : undefined,
     });
-    // Return 500 so Stripe retries (it will retry for 72 hours)
     return { statusCode: 500, body: 'Handler failed' };
   }
 
-  // ── Step 5: Mark event as processed ───────────────────────────────────
+  // ── Step 5: Mark event as processed ───────────────────────────────────────
   await dynamo.send(new PutCommand({
     TableName: TABLE_NAME,
     Item: {
@@ -115,7 +119,7 @@ export const handler = async (event: APIGatewayProxyEvent): Promise<APIGatewayPr
       event_id:     eventId,
       event_type:   eventType,
       processed_at: new Date().toISOString(),
-      ttl:          Math.floor(Date.now() / 1000) + (30 * 24 * 60 * 60), // 30-day TTL
+      ttl:          Math.floor(Date.now() / 1000) + (30 * 24 * 60 * 60),
     },
   }));
 
@@ -128,30 +132,37 @@ async function routeEvent(event: StripeEvent): Promise<void> {
   switch (event.type) {
 
     case 'checkout.session.completed': {
-      const session  = event.data.object as unknown as StripeCheckoutSession;
-      const addonType = session.metadata?.addon_type;
+      const session = event.data.object as unknown as StripeCheckoutSession;
 
-      if (addonType === 'additional_agent') {
-        // Add-on: provision new agent for existing tenant
-        await startProvisioning({
-          mode:             'additional_agent',
+      // Route by metadata.type (set by billingHandler when creating the session)
+      // NOTE: key is 'type' not 'addon_type'
+      const checkoutType = session.metadata?.type ?? '';
+
+      logger.info('Checkout completed', {
+        checkout_type:    checkoutType,
+        customer:         session.customer,
+        subscription:     session.subscription,
+        metadata:         session.metadata,
+      });
+
+      if (checkoutType === 'addon_agent') {
+        await incrementAddonAgents({
           stripeCustomerId: session.customer as string,
           stripeSubId:      session.subscription as string,
-          planCode:         session.metadata?.plan_code ?? 'starter',
         });
-      } else if (addonType === 'storage') {
-        // Add-on: increase storage quota
+      } else if (checkoutType === 'addon_storage') {
         await addStorage({
           stripeCustomerId: session.customer as string,
-          storageGb:        parseInt(session.metadata?.storage_gb ?? '10'),
+          storageGb:        parseInt(session.metadata?.storage_gb ?? '10', 10),
         });
       } else {
-        // New subscription: full tenant provisioning
+        // type === 'plan' or unset — full tenant provisioning
+        const planCode = session.metadata?.plan_code ?? 'starter';
         await startProvisioning({
           mode:             'new_tenant',
           stripeCustomerId: session.customer as string,
           stripeSubId:      session.subscription as string,
-          planCode:         session.metadata?.plan_code ?? 'starter',
+          planCode,
           customerEmail:    session.customer_email ?? session.customer_details?.email ?? '',
         });
       }
@@ -160,10 +171,12 @@ async function routeEvent(event: StripeEvent): Promise<void> {
 
     case 'customer.subscription.updated': {
       const sub = event.data.object as unknown as StripeSubscription;
+      // Fired when plan changes, trial ends, or subscription status changes
+      // plan_code in metadata is set by Stripe metadata on the subscription
       await updatePlan({
         stripeCustomerId: sub.customer as string,
         stripeSubId:      sub.id,
-        newPlanCode:      sub.metadata?.plan_code ?? 'starter',
+        newPlanCode:      sub.metadata?.plan_code ?? '',
         status:           sub.status,
       });
       break;
@@ -206,31 +219,75 @@ async function startProvisioning(params: {
   logger.info('Provisioning state machine started', params);
 }
 
+async function incrementAddonAgents(params: {
+  stripeCustomerId: string;
+  stripeSubId:      string;
+}): Promise<void> {
+  const tenant = await getTenantByStripeCustomer(params.stripeCustomerId);
+  if (!tenant) {
+    logger.warn('incrementAddonAgents: tenant not found', params);
+    return;
+  }
+
+  const { tenantId, cognitoSub } = tenant;
+
+  // Increment addon_agent_count in DynamoDB PROFILE record
+  const result = await dynamo.send(new UpdateCommand({
+    TableName:        TABLE_NAME,
+    Key:              { pk: `TENANT#${tenantId}`, sk: 'PROFILE' },
+    UpdateExpression: 'ADD addon_agent_count :one SET updated_at = :now',
+    ExpressionAttributeValues: {
+      ':one': 1,
+      ':now': new Date().toISOString(),
+    },
+    ReturnValues: 'ALL_NEW',
+  }));
+
+  const newCount = (result.Attributes?.addon_agent_count as number) ?? 1;
+
+  // Update Cognito custom attribute so JWT reflects new limit immediately on next refresh
+  if (cognitoSub) {
+    try {
+      await cognito.send(new AdminUpdateUserAttributesCommand({
+        UserPoolId:     USER_POOL_ID,
+        Username:       cognitoSub,
+        UserAttributes: [
+          { Name: 'custom:addon_agents', Value: String(newCount) },
+        ],
+      }));
+    } catch (err) {
+      // Non-fatal — DynamoDB is source of truth, JWT updates on next login
+      logger.warn('Failed to update Cognito addon_agents attribute', {
+        error: err instanceof Error ? err.message : 'unknown',
+        tenant_id: tenantId,
+      });
+    }
+  }
+
+  logger.info('Addon agent added', { tenant_id: tenantId, new_addon_count: newCount });
+}
+
 async function addStorage(params: {
   stripeCustomerId: string;
   storageGb:        number;
 }): Promise<void> {
-  // Look up tenant by Stripe customer ID via GSI-1
-  const result = await dynamo.send(new QueryCommand({
-    TableName:              TABLE_NAME,
-    IndexName:              'byStripeCustomer',
-    KeyConditionExpression: 'gsi1pk = :pk',
-    ExpressionAttributeValues: { ':pk': `STRIPE#${params.stripeCustomerId}` },
-    Limit: 1,
-  }));
-
-  if (!result.Items?.length) {
+  const tenant = await getTenantByStripeCustomer(params.stripeCustomerId);
+  if (!tenant) {
     logger.warn('addStorage: tenant not found', params);
     return;
   }
 
-  const tenantId = result.Items[0].tenant_id as string;
-  const { UpdateCommand } = await import('@aws-sdk/lib-dynamodb');
+  const { tenantId } = tenant;
+
+  // ADD is atomic increment — safe for concurrent calls
   await dynamo.send(new UpdateCommand({
-    TableName: TABLE_NAME,
-    Key: { pk: `TENANT#${tenantId}`, sk: `TENANT#${tenantId}` },
-    UpdateExpression: 'ADD storage_quota_gb :gb',
-    ExpressionAttributeValues: { ':gb': params.storageGb },
+    TableName:        TABLE_NAME,
+    Key:              { pk: `TENANT#${tenantId}`, sk: 'PROFILE' },
+    UpdateExpression: 'ADD storage_addon_gb :gb SET updated_at = :now',
+    ExpressionAttributeValues: {
+      ':gb':  params.storageGb,
+      ':now': new Date().toISOString(),
+    },
   }));
 
   logger.info('Storage quota increased', { tenant_id: tenantId, added_gb: params.storageGb });
@@ -242,21 +299,23 @@ async function updatePlan(params: {
   newPlanCode:      string;
   status:           string;
 }): Promise<void> {
-  const result = await dynamo.send(new QueryCommand({
-    TableName:              TABLE_NAME,
-    IndexName:              'byStripeCustomer',
-    KeyConditionExpression: 'gsi1pk = :pk',
-    ExpressionAttributeValues: { ':pk': `STRIPE#${params.stripeCustomerId}` },
-    Limit: 1,
-  }));
+  // Only update if we have a plan code (not all subscription.updated events have it)
+  if (!params.newPlanCode) {
+    logger.info('updatePlan: no plan_code in subscription metadata, skipping', params);
+    return;
+  }
 
-  if (!result.Items?.length) return;
-  const tenantId = result.Items[0].tenant_id as string;
+  const tenant = await getTenantByStripeCustomer(params.stripeCustomerId);
+  if (!tenant) {
+    logger.warn('updatePlan: tenant not found', params);
+    return;
+  }
 
-  const { UpdateCommand } = await import('@aws-sdk/lib-dynamodb');
+  const { tenantId, cognitoSub } = tenant;
+
   await dynamo.send(new UpdateCommand({
-    TableName: TABLE_NAME,
-    Key: { pk: `TENANT#${tenantId}`, sk: `TENANT#${tenantId}` },
+    TableName:        TABLE_NAME,
+    Key:              { pk: `TENANT#${tenantId}`, sk: 'PROFILE' },
     UpdateExpression: 'SET plan_code = :plan, subscription_status = :status, updated_at = :now',
     ExpressionAttributeValues: {
       ':plan':   params.newPlanCode,
@@ -265,30 +324,48 @@ async function updatePlan(params: {
     },
   }));
 
-  logger.info('Plan updated', { tenant_id: tenantId, new_plan: params.newPlanCode });
+  // Update Cognito so JWT reflects new plan on next token refresh
+  if (cognitoSub && params.newPlanCode) {
+    try {
+      await cognito.send(new AdminUpdateUserAttributesCommand({
+        UserPoolId:     USER_POOL_ID,
+        Username:       cognitoSub,
+        UserAttributes: [
+          { Name: 'custom:plan_code', Value: params.newPlanCode },
+        ],
+      }));
+    } catch (err) {
+      logger.warn('Failed to update Cognito plan_code attribute', {
+        error: err instanceof Error ? err.message : 'unknown',
+        tenant_id: tenantId,
+      });
+    }
+  }
+
+  logger.info('Plan updated in DynamoDB + Cognito', {
+    tenant_id: tenantId,
+    new_plan:  params.newPlanCode,
+    status:    params.status,
+  });
 }
 
 async function suspendTenant(params: {
   stripeCustomerId: string;
   stripeSubId:      string;
 }): Promise<void> {
-  const result = await dynamo.send(new QueryCommand({
-    TableName:              TABLE_NAME,
-    IndexName:              'byStripeCustomer',
-    KeyConditionExpression: 'gsi1pk = :pk',
-    ExpressionAttributeValues: { ':pk': `STRIPE#${params.stripeCustomerId}` },
-    Limit: 1,
-  }));
+  const tenant = await getTenantByStripeCustomer(params.stripeCustomerId);
+  if (!tenant) {
+    logger.warn('suspendTenant: tenant not found', params);
+    return;
+  }
 
-  if (!result.Items?.length) return;
-  const tenantId = result.Items[0].tenant_id as string;
+  const { tenantId } = tenant;
 
-  const { UpdateCommand } = await import('@aws-sdk/lib-dynamodb');
   await dynamo.send(new UpdateCommand({
-    TableName: TABLE_NAME,
-    Key: { pk: `TENANT#${tenantId}`, sk: `TENANT#${tenantId}` },
-    UpdateExpression: 'SET #status = :s, subscription_status = :sub, suspended_at = :now, updated_at = :now',
-    ExpressionAttributeNames:  { '#status': 'status' },
+    TableName:        TABLE_NAME,
+    Key:              { pk: `TENANT#${tenantId}`, sk: 'PROFILE' },
+    UpdateExpression: 'SET #s = :s, subscription_status = :sub, suspended_at = :now, updated_at = :now',
+    ExpressionAttributeNames:  { '#s': 'status' },
     ExpressionAttributeValues: {
       ':s':   'SUSPENDED',
       ':sub': 'canceled',
@@ -303,20 +380,38 @@ async function handlePaymentFailure(params: {
   stripeCustomerId: string;
   attemptCount:     number;
 }): Promise<void> {
-  // After 3 failed attempts, suspend the tenant
   if (params.attemptCount >= 3) {
     await suspendTenant({ stripeCustomerId: params.stripeCustomerId, stripeSubId: 'payment_failed' });
   } else {
-    logger.info('Payment failed — attempt', params);
-    // TODO: send payment failure email (Phase 6 SES integration)
+    logger.info('Payment failed — will retry', params);
   }
 }
 
-// ── Stripe Signature Verification ────────────────────────────────────────────
+// ── Shared Helper ─────────────────────────────────────────────────────────────
+
+async function getTenantByStripeCustomer(
+  stripeCustomerId: string,
+): Promise<{ tenantId: string; cognitoSub: string } | null> {
+  const result = await dynamo.send(new QueryCommand({
+    TableName:              TABLE_NAME,
+    IndexName:              'byStripeCustomer',
+    KeyConditionExpression: 'gsi1pk = :pk',
+    ExpressionAttributeValues: { ':pk': `STRIPE#${stripeCustomerId}` },
+    Limit: 1,
+  }));
+
+  if (!result.Items?.length) return null;
+
+  return {
+    tenantId:   result.Items[0].tenant_id as string,
+    cognitoSub: result.Items[0].cognito_sub as string ?? '',
+  };
+}
+
+// ── Stripe Signature Verification ─────────────────────────────────────────────
 
 function verifyStripeSignature(payload: string, header: string, secret: string): boolean {
   try {
-    // Parse Stripe-Signature header: t=timestamp,v1=signature
     const parts: Record<string, string> = {};
     header.split(',').forEach(part => {
       const [k, v] = part.split('=');
@@ -327,18 +422,15 @@ function verifyStripeSignature(payload: string, header: string, secret: string):
     const signature = parts['v1'];
     if (!timestamp || !signature) return false;
 
-    // Reject requests older than 5 minutes (replay protection)
     const requestTime = parseInt(timestamp, 10);
     const nowSeconds  = Math.floor(Date.now() / 1000);
     if (Math.abs(nowSeconds - requestTime) > 300) return false;
 
-    // Compute expected signature
     const signedPayload = `${timestamp}.${payload}`;
     const expected = createHmac('sha256', secret)
       .update(signedPayload, 'utf8')
       .digest('hex');
 
-    // Constant-time comparison
     if (expected.length !== signature.length) return false;
     let diff = 0;
     for (let i = 0; i < expected.length; i++) {
@@ -359,11 +451,11 @@ interface StripeEvent {
 }
 
 interface StripeCheckoutSession {
-  customer:         string | null;
-  subscription:     string | null;
-  customer_email:   string | null;
+  customer:          string | null;
+  subscription:      string | null;
+  customer_email:    string | null;
   customer_details?: { email?: string };
-  metadata?:        Record<string, string>;
+  metadata?:         Record<string, string>;
 }
 
 interface StripeSubscription {
