@@ -150,7 +150,7 @@ async function routeEvent(event) {
         case 'checkout.session.completed': {
             const session = event.data.object;
             const addonType = session.metadata?.type;
-            if (addonType === 'additional_agent') {
+            if (addonType === 'addon_agent') {
                 // Add-on: provision new agent for existing tenant
                 await startProvisioning({
                     mode: 'additional_agent',
@@ -159,7 +159,7 @@ async function routeEvent(event) {
                     planCode: session.metadata?.plan_code ?? 'starter',
                 });
             }
-            else if (addonType === 'storage') {
+            else if (addonType === 'addon_storage') {
                 // Add-on: increase storage quota
                 await addStorage({
                     stripeCustomerId: session.customer,
