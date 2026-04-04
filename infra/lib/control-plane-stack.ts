@@ -115,7 +115,7 @@ export class ControlPlaneStack extends cdk.Stack {
     });
 
     const secretsPolicy = new iam.PolicyStatement({
-      actions:   ['secretsmanager:CreateSecret', 'secretsmanager:GetSecretValue',
+      actions:   ['secretsmanager:CreateSecret', 'secretsmanager:DescribeSecret', 'secretsmanager:GetSecretValue',
                   'secretsmanager:UpdateSecret', 'secretsmanager:DeleteSecret'],
       resources: [`arn:aws:secretsmanager:${Config.region}:${Config.account}:secret:/openclaw/*`],
     });
