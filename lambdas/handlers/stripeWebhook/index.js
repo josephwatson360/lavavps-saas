@@ -76,7 +76,10 @@ const handler = async (event) => {
         logger.warn('Webhook rejected: missing Stripe-Signature header');
         return { statusCode: 400, body: 'Missing signature' };
     }
-    const rawBody = event.body ?? '';
+    // API Gateway may base64-encode the body — decode it before HMAC verification
+    const rawBody = event.isBase64Encoded
+        ? Buffer.from(event.body ?? '', 'base64').toString('utf8')
+        : (event.body ?? '');
     // Fetch signing secret from Secrets Manager (cached in Lambda memory)
     if (!cachedWebhookSecret) {
         try {
