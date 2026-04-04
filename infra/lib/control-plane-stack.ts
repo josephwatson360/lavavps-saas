@@ -526,6 +526,30 @@ export class ControlPlaneStack extends cdk.Stack {
     checkoutResource.addMethod('POST', lambdaIntegration(billingHandlerFn), authOptions);
     portalResource.addMethod('POST',   lambdaIntegration(billingHandlerFn), authOptions);
 
+    // ── Gateway responses with CORS headers ────────────────────────────────
+    // Without this, API Gateway's own error responses (401, 403, 503, etc.)
+    // are returned WITHOUT CORS headers, causing browsers to show "Failed to fetch"
+    // instead of the actual error. This adds CORS headers to ALL error responses.
+    const corsResponseHeaders = {
+      'Access-Control-Allow-Origin':  "'*'",
+      'Access-Control-Allow-Headers': "'Content-Type,Authorization,X-Amzn-Trace-Id'",
+      'Access-Control-Allow-Methods': "'GET,POST,PUT,DELETE,OPTIONS'",
+    };
+    for (const type of [
+      apigw.ResponseType.DEFAULT_4XX,
+      apigw.ResponseType.DEFAULT_5XX,
+      apigw.ResponseType.UNAUTHORIZED,
+      apigw.ResponseType.ACCESS_DENIED,
+      apigw.ResponseType.RESOURCE_NOT_FOUND,
+      apigw.ResponseType.QUOTA_EXCEEDED,
+      apigw.ResponseType.THROTTLED,
+    ]) {
+      this.restApi.addGatewayResponse(`GwResp${type.responseType.replace(/[^a-zA-Z]/g, '')}`, {
+        type,
+        responseHeaders: corsResponseHeaders,
+      });
+    }
+
     // ── WebSocket API (API Gateway v2) ────────────────────────────────────
     this.wsApi = new apigwv2.CfnApi(this, 'WsApi', {
       name:                       'lavavps-ws',
