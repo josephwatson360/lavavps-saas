@@ -298,7 +298,6 @@ export function AgentConfig() {
       </div>
     )}
   </div>
-  </div>
   );
 }
 
