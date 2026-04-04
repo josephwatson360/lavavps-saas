@@ -535,19 +535,17 @@ export class ControlPlaneStack extends cdk.Stack {
       'Access-Control-Allow-Headers': "'Content-Type,Authorization,X-Amzn-Trace-Id'",
       'Access-Control-Allow-Methods': "'GET,POST,PUT,DELETE,OPTIONS'",
     };
-    for (const type of [
-      apigw.ResponseType.DEFAULT_4XX,
-      apigw.ResponseType.DEFAULT_5XX,
-      apigw.ResponseType.UNAUTHORIZED,
-      apigw.ResponseType.ACCESS_DENIED,
-      apigw.ResponseType.RESOURCE_NOT_FOUND,
-      apigw.ResponseType.QUOTA_EXCEEDED,
-      apigw.ResponseType.THROTTLED,
-    ]) {
-      this.restApi.addGatewayResponse(`GwResp${type.responseType.replace(/[^a-zA-Z]/g, '')}`, {
-        type,
-        responseHeaders: corsResponseHeaders,
-      });
+    const gwResponses: Array<[string, apigw.ResponseType]> = [
+      ['GwResp4xx',          apigw.ResponseType.DEFAULT_4XX],
+      ['GwResp5xx',          apigw.ResponseType.DEFAULT_5XX],
+      ['GwRespUnauthorized', apigw.ResponseType.UNAUTHORIZED],
+      ['GwRespAccessDenied', apigw.ResponseType.ACCESS_DENIED],
+      ['GwRespNotFound',     apigw.ResponseType.RESOURCE_NOT_FOUND],
+      ['GwRespQuota',        apigw.ResponseType.QUOTA_EXCEEDED],
+      ['GwRespThrottled',    apigw.ResponseType.THROTTLED],
+    ];
+    for (const [id, type] of gwResponses) {
+      this.restApi.addGatewayResponse(id, { type, responseHeaders: corsResponseHeaders });
     }
 
     // ── WebSocket API (API Gateway v2) ────────────────────────────────────
