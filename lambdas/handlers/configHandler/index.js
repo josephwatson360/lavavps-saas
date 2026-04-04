@@ -171,8 +171,8 @@ const ALLOWED_FIELDS = {
 };
 // ── Handler ────────────────────────────────────────────────────────────────
 const handler = async (event) => {
-    const tenantId = event.requestContext.authorizer?.tenantId;
-    const planCode = event.requestContext.authorizer?.planCode;
+    const tenantId = event.requestContext.authorizer?.claims?.['custom:tenant_id'];
+    const planCode = event.requestContext.authorizer?.claims?.['custom:plan_code'];
     const agentId = event.pathParameters?.agentId;
     if (!tenantId || !agentId) {
         return (0, response_1.badRequest)('Missing tenantId or agentId');

@@ -43,7 +43,7 @@ const PROVIDER_ENDPOINTS = {
     cohere: 'https://api.cohere.ai/v1/models',
 };
 const handler = async (event) => {
-    const tenantId = event.requestContext.authorizer?.tenantId;
+    const tenantId = event.requestContext.authorizer?.claims?.['custom:tenant_id'];
     const agentId = event.pathParameters?.agentId;
     if (!tenantId || !agentId)
         return (0, response_1.badRequest)('Missing tenant or agent context');
