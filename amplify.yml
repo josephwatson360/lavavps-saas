@@ -4,7 +4,7 @@ frontend:
     preBuild:
       commands:
         - cd portal
-        - npm ci
+        - npm ci --include=dev
     build:
       commands:
         - npm run build
