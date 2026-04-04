@@ -3,20 +3,26 @@ import { useNavigate } from 'react-router-dom';
 import { Plus, RefreshCw, Bot, TrendingUp } from 'lucide-react';
 import { AgentCard }   from '@/components/AgentCard';
 import { agentsApi }   from '@/api/client';
+import api             from '@/api/client';
 import { useStore, toast } from '@/store/useStore';
 
 export function Dashboard() {
   const navigate  = useNavigate();
-  const { agents, setAgents, tenant } = useStore();
+  const { agents, setAgents } = useStore();
   const [loading, setLoading]  = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [agentMax, setAgentMax] = useState(2);
 
   async function load(quiet = false) {
     if (!quiet) setLoading(true);
     else setRefreshing(true);
     try {
-      const { agents: list } = await agentsApi.list();
+      const [{ agents: list }, billingRes] = await Promise.all([
+        agentsApi.list(),
+        api.get<{ agentMax: number }>('/billing').catch(() => ({ data: { agentMax: 2 } })),
+      ]);
       setAgents(list);
+      setAgentMax(billingRes.data.agentMax ?? 2);
     } catch {
       toast.error('Failed to load agents');
     } finally {
@@ -28,7 +34,6 @@ export function Dashboard() {
   useEffect(() => { load(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const running  = agents.filter(a => a.status === 'RUNNING').length;
-  const agentMax = { starter: 2, pro: 4, business: 10 }[tenant?.planCode ?? 'starter'] ?? 2;
   const canAdd   = agents.length < agentMax;
 
   return (

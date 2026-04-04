@@ -33,6 +33,10 @@ export function NewAgentWizard() {
 
   // Step 1: Provider selection
   async function handleProviderSelect(p: string) {
+    if (!agentName.trim()) {
+      toast.error('Please give your agent a name first');
+      return;
+    }
     setProvider(p);
     setStep(2);
   }
