@@ -1,0 +1,9 @@
+{
+  "name": "lavavps-stripe-webhook",
+  "version": "1.0.0",
+  "description": "LavaVPS Stripe webhook handler",
+  "main": "index.js",
+  "dependencies": {
+    "stripe": "^16.0.0"
+  }
+}

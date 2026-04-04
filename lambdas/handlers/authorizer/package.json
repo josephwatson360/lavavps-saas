@@ -1,0 +1,9 @@
+{
+  "name": "lavavps-authorizer",
+  "version": "1.0.0",
+  "description": "LavaVPS API Gateway authorizer Lambda",
+  "main": "index.js",
+  "dependencies": {
+    "aws-jwt-verify": "^4.0.1"
+  }
+}
