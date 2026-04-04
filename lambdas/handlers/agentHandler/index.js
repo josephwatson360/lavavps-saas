@@ -87,16 +87,22 @@ const handler = async (event) => {
             Select: 'COUNT',
         }));
         const currentCount = existing.Count ?? 0;
-        const limit = PLAN_AGENT_LIMITS[planCode] ?? 1;
-        if (currentCount >= limit) {
+        const baseLimit = PLAN_AGENT_LIMITS[planCode] ?? 1;
+        const profileResult = await dynamo.send(new lib_dynamodb_1.GetCommand({
+            TableName: TABLE_NAME,
+            Key: { pk: `TENANT#${tenantId}`, sk: 'PROFILE' },
+        }));
+        const addonAgentCount = parseInt(String(profileResult.Item?.addon_agent_count ?? '0'), 10);
+        const effectiveLimit = baseLimit + addonAgentCount;
+        if (currentCount >= effectiveLimit) {
             return {
                 statusCode: 402,
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     error: 'AGENT_LIMIT_REACHED',
-                    message: `Your ${planCode} plan includes ${limit} agent${limit > 1 ? 's' : ''}. Purchase an additional agent add-on to add more.`,
+                    message: `Your plan includes ${effectiveLimit} agent${effectiveLimit > 1 ? 's' : ''}. Purchase an additional agent add-on to add more.`,
                     current: currentCount,
-                    limit,
+                    limit: effectiveLimit,
                 }),
             };
         }
