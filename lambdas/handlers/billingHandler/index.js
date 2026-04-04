@@ -89,18 +89,18 @@ async function getStripeCustomerId(tenantId) {
     const res = await ddb.send(new client_dynamodb_1.GetItemCommand({
         TableName: TABLE_NAME,
         Key: {
-            PK: { S: `TENANT#${tenantId}` },
-            SK: { S: 'PROFILE' },
+            pk: { S: `TENANT#${tenantId}` },
+            sk: { S: 'PROFILE' },
         },
         ProjectionExpression: 'stripeCustomerId',
     }));
     return res.Item?.stripeCustomerId?.S ?? null;
 }
 async function handler(event) {
-    const path = event.rawPath ?? '';
+    const path = event.path ?? '';
     const method = event.httpMethod;
     // Extract tenant context from JWT claims (injected by Cognito authorizer)
-    const claims = event.requestContext.authorizer?.jwt?.claims ?? {};
+    const claims = event.requestContext.authorizer?.claims ?? {};
     const tenantId = claims['custom:tenant_id'];
     const email = claims['email'];
     if (!tenantId)
