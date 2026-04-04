@@ -1,4 +1,4 @@
-import { APIGatewayProxyEventV2, APIGatewayProxyResultV2 } from 'aws-lambda';
+import { APIGatewayProxyEvent, APIGatewayProxyResult } from 'aws-lambda';
 import {
   SecretsManagerClient,
   GetSecretValueCommand,
@@ -32,10 +32,10 @@ const CORS = {
   'Access-Control-Allow-Methods': 'POST,OPTIONS',
   'Content-Type': 'application/json',
 };
-function ok(body: unknown, status = 200): APIGatewayProxyResultV2 {
+function ok(body: unknown, status = 200): APIGatewayProxyResult {
   return { statusCode: status, headers: CORS, body: JSON.stringify(body) };
 }
-function err(message: string, status = 400): APIGatewayProxyResultV2 {
+function err(message: string, status = 400): APIGatewayProxyResult {
   return { statusCode: status, headers: CORS, body: JSON.stringify({ message }) };
 }
 
@@ -75,10 +75,10 @@ async function getStripeCustomerId(tenantId: string): Promise<string | null> {
 }
 
 export async function handler(
-  event: APIGatewayProxyEventV2,
-): Promise<APIGatewayProxyResultV2> {
+  event: APIGatewayProxyEvent,
+): Promise<APIGatewayProxyResult> {
   const path   = event.rawPath ?? '';
-  const method = event.requestContext.http.method;
+  const method = event.httpMethod;
 
   // Extract tenant context from JWT claims (injected by Cognito authorizer)
   const claims   = (event.requestContext as any).authorizer?.jwt?.claims ?? {};

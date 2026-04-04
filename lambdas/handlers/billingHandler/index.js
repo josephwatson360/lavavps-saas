@@ -98,7 +98,7 @@ async function getStripeCustomerId(tenantId) {
 }
 async function handler(event) {
     const path = event.rawPath ?? '';
-    const method = event.requestContext.http.method;
+    const method = event.httpMethod;
     // Extract tenant context from JWT claims (injected by Cognito authorizer)
     const claims = event.requestContext.authorizer?.jwt?.claims ?? {};
     const tenantId = claims['custom:tenant_id'];
