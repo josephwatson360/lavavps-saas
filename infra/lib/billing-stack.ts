@@ -223,7 +223,7 @@ export class BillingStack extends cdk.Stack {
     });
 
     webhookFn.addToRolePolicy(new iam.PolicyStatement({
-      actions:   ['dynamodb:GetItem', 'dynamodb:PutItem', 'dynamodb:Query'],
+      actions:   ['dynamodb:GetItem', 'dynamodb:PutItem', 'dynamodb:UpdateItem', 'dynamodb:Query'],
       resources: [Config.deployed.dynamoTableArn,
                   `${Config.deployed.dynamoTableArn}/index/*`],
     }));
