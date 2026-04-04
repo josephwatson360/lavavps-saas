@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useParams } from 'react-router-dom';
-import { Save, RefreshCw, Eye, EyeOff, ExternalLink, Loader2 } from 'lucide-react';
-import { configApi, keysApi, modelsApi, channelsApi } from '@/api/client';
+import { Save, RefreshCw, Eye, EyeOff, ExternalLink, Loader2, FileText, ChevronDown, ChevronUp } from 'lucide-react';
+import { configApi, keysApi, modelsApi, channelsApi, filesApi } from '@/api/client';
 import { useStore, toast } from '@/store/useStore';
 import type { AgentConfig as AgentConfigType, ProviderModel } from '@/api/types';
 
@@ -26,6 +26,7 @@ export function AgentConfig() {
   const [newApiKey, setNewApiKey] = useState('');
   const [showKey, setShowKey]   = useState(false);
   const [provider, setProvider] = useState('');
+  const [activeTab, setActiveTab] = useState<'settings' | 'files'>('settings');
 
   useEffect(() => {
     if (!agentId) return;
@@ -92,6 +93,25 @@ export function AgentConfig() {
         </button>
       </div>
 
+      {/* Tab switcher */}
+      <div className="flex gap-1 p-1 bg-obsidian-800 rounded-xl mb-6 border border-border">
+        {([['settings', 'Settings'], ['files', 'Persona & Files']] as const).map(([tab, label]) => (
+          <button
+            key={tab}
+            onClick={() => setActiveTab(tab)}
+            className={`flex-1 flex items-center justify-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all ${
+              activeTab === tab
+                ? 'bg-obsidian-700 text-text shadow-sm'
+                : 'text-muted hover:text-text'
+            }`}
+          >
+            {tab === 'files' && <FileText size={14} />}
+            {label}
+          </button>
+        ))}
+      </div>
+
+    {activeTab === 'settings' && (
       <div className="space-y-6">
         {/* System prompt */}
         <section className="card p-5">
@@ -257,7 +277,28 @@ export function AgentConfig() {
           </button>
         </div>
       </div>
-    </div>
+    )}
+
+    {/* ── Files tab ───────────────────────────────────────────────────── */}
+    {activeTab === 'files' && agentId && (
+      <div className="space-y-4">
+        <p className="text-xs text-muted">
+          These markdown files control your agent's personality, tools, and behavior.
+          Changes are applied within seconds — no restart needed.
+        </p>
+        {(['soul', 'agents', 'user', 'tools', 'skills'] as const).map(name => (
+          <MarkdownFileEditor
+            key={name}
+            agentId={agentId}
+            filename={`${name}.md`}
+            label={FILE_LABELS[name]}
+            description={FILE_DESCRIPTIONS[name]}
+          />
+        ))}
+      </div>
+    )}
+  </div>
+  </div>
   );
 }
 
