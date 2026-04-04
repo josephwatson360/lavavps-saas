@@ -132,7 +132,7 @@ async function handler(event) {
             if (!storageGb)
                 return err('storageGb is required for storage add-on');
             priceId = priceIds[`addon_storage_${storageGb}`];
-            mode = 'payment'; // one-time purchase
+            mode = 'subscription'; // one-time purchase
         }
         else {
             return err(`Unknown type: ${type}`);
@@ -173,5 +173,29 @@ async function handler(event) {
         });
         return ok({ portalUrl: session.url });
     }
-    return err('Not found', 404);
+    
+  // GET /billing — live billing info from DynamoDB (source of truth)
+  if (method === 'GET' && path.includes('/billing')) {
+    const item = await ddb.send(new GetItemCommand({
+      TableName: TABLE_NAME,
+      Key: { pk: { S: `TENANT#${tenantId}` }, sk: { S: 'PROFILE' } },
+    }));
+    const BASE_STORAGE = { starter: 5, pro: 50, business: 100 };
+    const BASE_AGENTS  = { starter: 2, pro: 4,  business: 10  };
+    const planCode     = item.Item?.plan_code?.S ?? 'starter';
+    const storageAddon = parseInt(item.Item?.storage_addon_gb?.N  ?? '0', 10);
+    const addonAgents  = parseInt(item.Item?.addon_agent_count?.N ?? '0', 10);
+    const storageBase  = BASE_STORAGE[planCode] ?? 5;
+    const agentBase    = BASE_AGENTS[planCode]  ?? 2;
+    return ok({
+      planCode,
+      status:             item.Item?.status?.S              ?? 'ACTIVE',
+      subscriptionStatus: item.Item?.subscription_status?.S ?? 'active',
+      stripeCustomerId:   item.Item?.stripe_customer_id?.S  ?? null,
+      storageBase, storageAddon, storageTotal: storageBase + storageAddon,
+      agentBase, addonAgents, agentMax: agentBase + addonAgents,
+    });
+  }
+
+  return err('Not found', 404);
 }

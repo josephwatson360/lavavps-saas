@@ -1,80 +1,92 @@
 import { useState, useEffect } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { fetchAuthSession } from 'aws-amplify/auth';
-import { CreditCard, HardDrive, Plus, CheckCircle2, Loader2, Settings, AlertCircle } from 'lucide-react';
+import { CreditCard, HardDrive, Plus, CheckCircle2, Loader2, Settings, AlertCircle, RefreshCw } from 'lucide-react';
 import { billingApi } from '@/api/client';
 import { useStore, toast } from '@/store/useStore';
+import api from '@/api/client';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Billing page
 //
-// - Current plan display + usage (reads from JWT for plan/agent limits)
-// - On ?checkout=success: force-refreshes JWT to pick up new plan/addon limits
-// - Add-on purchases (agents, storage) → Stripe Checkout via backend
-// - Plan upgrades → Stripe Checkout via backend
-// - Plan management → Stripe Customer Portal
+// Reads live billing state from GET /billing — source of truth is DynamoDB,
+// NOT the JWT claim. This ensures plan, storage, and agent limits are always
+// accurate regardless of when the JWT was last refreshed.
 // ─────────────────────────────────────────────────────────────────────────────
 
 const PLAN_FEATURES: Record<string, string[]> = {
-  starter:  ['2 agents', '5 GB storage', '0.25 vCPU / 1 GB RAM', 'Discord + Telegram Channel Integrations', '15-min idle timeout'],
-  pro:      ['4 agents', '50 GB storage', '0.5 vCPU / 1 GB RAM', 'Ralph Loop / Auto Tasks', 'Discord + Telegram + WhatsApp Channel Integrations', '30-min idle timeout'],
-  business: ['10 agents', '100 GB storage', '1 vCPU / 2 GB RAM', 'All Channel Integrations', 'Audit logs', 'Priority API', '60-min idle timeout'],
-};
-
-const BASE_AGENT_LIMIT: Record<string, number> = {
-  starter: 2,
-  pro:     4,
-  business: 10,
+  starter:  ['2 agents', '5 GB storage', '0.25 vCPU / 1 GB RAM', 'Discord + Telegram', '15-min idle timeout'],
+  pro:      ['4 agents', '50 GB storage', '0.5 vCPU / 1 GB RAM', 'Ralph Loop / Auto Tasks', 'Discord + Telegram + WhatsApp', '30-min idle timeout'],
+  business: ['10 agents', '100 GB storage', '1 vCPU / 2 GB RAM', 'All Channel Integrations', 'Audit logs', '60-min idle timeout'],
 };
 
 const STORAGE_ADDONS = [
-  { label: '+10 GB', price: '$5',  gb: 10  },
-  { label: '+50 GB', price: '$25', gb: 50  },
+  { label: '+10 GB',  price: '$5',  gb: 10  },
+  { label: '+50 GB',  price: '$25', gb: 50  },
   { label: '+100 GB', price: '$50', gb: 100 },
 ];
 
+interface BillingInfo {
+  planCode:           string;
+  status:             string;
+  subscriptionStatus: string;
+  storageBase:        number;
+  storageAddon:       number;
+  storageTotal:       number;
+  agentBase:          number;
+  addonAgents:        number;
+  agentMax:           number;
+  stripeCustomerId:   string | null;
+}
+
 export function Billing() {
-  const { tenant, agents, setTenant } = useStore();
-  const [searchParams, setSearchParams] = useSearchParams();
-  const [loading, setLoading]           = useState<string | null>(null);
-  const [refreshing, setRefreshing]     = useState(false);
+  const { agents }                        = useStore();
+  const [searchParams, setSearchParams]   = useSearchParams();
+  const [billingInfo, setBillingInfo]     = useState<BillingInfo | null>(null);
+  const [loadingInfo, setLoadingInfo]     = useState(true);
+  const [infoError, setInfoError]         = useState(false);
+  const [loading, setLoading]             = useState<string | null>(null);
   const [checkoutStatus, setCheckoutStatus] = useState<'success' | 'cancelled' | null>(null);
 
-  const plan         = tenant?.planCode ?? 'starter';
-  const features     = PLAN_FEATURES[plan] ?? [];
-  const baseLimit    = BASE_AGENT_LIMIT[plan] ?? 2;
-  const addonAgents  = parseInt((tenant as any)?.addonAgents ?? '0', 10) || 0;
-  const agentMax     = baseLimit + addonAgents;
-  const usedAgents   = agents.length;
+  // Load live billing info from DynamoDB via API
+  async function loadBillingInfo() {
+    setLoadingInfo(true);
+    setInfoError(false);
+    try {
+      const data = await api.get<BillingInfo>('/billing').then(r => r.data);
+      setBillingInfo(data);
+    } catch {
+      setInfoError(true);
+    } finally {
+      setLoadingInfo(false);
+    }
+  }
 
-  // On checkout success/cancel: handle URL params and refresh JWT
   useEffect(() => {
     const status = searchParams.get('checkout');
-    if (!status) return;
 
-    setCheckoutStatus(status as 'success' | 'cancelled');
+    if (status) {
+      setCheckoutStatus(status as 'success' | 'cancelled');
+      setSearchParams({}, { replace: true });
 
-    if (status === 'success') {
-      // Force-refresh the JWT so updated plan/addon claims are reflected immediately
-      setRefreshing(true);
-      fetchAuthSession({ forceRefresh: true })
-        .then(session => {
-          const claims = session.tokens?.idToken?.payload;
-          if (claims && tenant) {
-            setTenant({
-              ...tenant,
-              planCode:    (claims['custom:plan_code'] as string) ?? tenant.planCode,
-              addonAgents: (claims['custom:addon_agents'] as string) ?? '0',
-            } as any);
-          }
-        })
-        .catch(() => { /* non-fatal — user can refresh manually */ })
-        .finally(() => setRefreshing(false));
+      if (status === 'success') {
+        // Force JWT refresh so Cognito-backed claims update, then reload billing
+        fetchAuthSession({ forceRefresh: true })
+          .catch(() => {})
+          .finally(() => loadBillingInfo());
+        return;
+      }
     }
 
-    // Clean up URL params without triggering a navigation
-    setSearchParams({}, { replace: true });
+    loadBillingInfo();
   }, []);
+
+  const plan        = billingInfo?.planCode ?? 'starter';
+  const features    = PLAN_FEATURES[plan] ?? [];
+  const agentMax    = billingInfo?.agentMax ?? 2;
+  const usedAgents  = agents.length;
+  const storageTotal = billingInfo?.storageTotal ?? 5;
+  const storageAddon = billingInfo?.storageAddon ?? 0;
 
   async function handleCheckout(
     type: 'plan' | 'addon_agent' | 'addon_storage',
@@ -111,9 +123,19 @@ export function Billing() {
 
   return (
     <div className="max-w-3xl mx-auto px-6 py-8">
-      <div className="mb-8">
-        <h1 className="font-display text-2xl font-bold text-text">Billing & Plan</h1>
-        <p className="text-sm text-muted mt-1">Manage your subscription and add-ons</p>
+      <div className="mb-8 flex items-center justify-between">
+        <div>
+          <h1 className="font-display text-2xl font-bold text-text">Billing & Plan</h1>
+          <p className="text-sm text-muted mt-1">Manage your subscription and add-ons</p>
+        </div>
+        <button
+          className="btn-secondary text-xs flex items-center gap-1.5"
+          onClick={loadBillingInfo}
+          disabled={loadingInfo}
+        >
+          <RefreshCw size={12} className={loadingInfo ? 'animate-spin' : ''} />
+          Refresh
+        </button>
       </div>
 
       {/* Checkout status banners */}
@@ -122,11 +144,8 @@ export function Billing() {
           <CheckCircle2 size={16} className="text-green-400 flex-shrink-0" />
           <div>
             <p className="text-sm font-medium text-green-300">Purchase successful!</p>
-            <p className="text-xs text-green-400/70 mt-0.5">
-              {refreshing ? 'Refreshing your account limits...' : 'Your account has been updated.'}
-            </p>
+            <p className="text-xs text-green-400/70 mt-0.5">Your account limits have been updated below.</p>
           </div>
-          {refreshing && <Loader2 size={14} className="animate-spin text-green-400 ml-auto flex-shrink-0" />}
         </div>
       )}
 
@@ -137,72 +156,110 @@ export function Billing() {
         </div>
       )}
 
-      {/* Current plan */}
-      <div className="card p-6 mb-6">
-        <div className="flex items-center justify-between mb-4">
-          <div>
-            <p className="text-xs text-muted uppercase tracking-wider mb-1">Current Plan</p>
-            <h2 className="font-display text-xl font-bold text-text capitalize">{plan}</h2>
+      {/* Error state */}
+      {infoError && (
+        <div className="flex items-center gap-3 p-4 rounded-xl bg-red-900/10 border border-red-900/30 mb-6">
+          <AlertCircle size={16} className="text-red-400 flex-shrink-0" />
+          <div className="flex-1">
+            <p className="text-sm text-red-300">Failed to load billing info.</p>
           </div>
-          <button
-            className="btn-secondary text-xs"
-            onClick={handleManage}
-            disabled={isLoading('portal')}
-          >
-            {isLoading('portal')
-              ? <><Loader2 size={12} className="animate-spin" /> Opening...</>
-              : <><Settings size={12} /> Manage Subscription</>}
+          <button className="text-xs text-lava-400 hover:text-lava-300" onClick={loadBillingInfo}>
+            Retry
           </button>
         </div>
+      )}
 
-        {/* Usage */}
-        <div className="grid grid-cols-2 gap-4 mb-5">
-          <div className="bg-obsidian-800 rounded-xl p-3">
-            <p className="text-xs text-muted mb-1">Agents</p>
-            <p className="text-lg font-bold text-text">
-              {usedAgents}
-              <span className="text-sm font-normal text-muted"> / {agentMax}</span>
-            </p>
-            {addonAgents > 0 && (
-              <p className="text-xs text-muted mt-0.5">
-                {baseLimit} base + {addonAgents} add-on
-              </p>
-            )}
+      {/* Current plan */}
+      <div className="card p-6 mb-6">
+        {loadingInfo ? (
+          <div className="flex items-center gap-3 py-4">
+            <Loader2 size={16} className="animate-spin text-muted" />
+            <span className="text-sm text-muted">Loading billing info...</span>
           </div>
-          <div className="bg-obsidian-800 rounded-xl p-3">
-            <p className="text-xs text-muted mb-1">Storage Pool</p>
-            <p className="text-lg font-bold text-text capitalize">
-              {plan === 'starter' ? '5 GB' : plan === 'pro' ? '50 GB' : '100 GB'}
-            </p>
-          </div>
-        </div>
-
-        {/* Features */}
-        <div className="grid grid-cols-2 gap-y-2">
-          {features.map(f => (
-            <div key={f} className="flex items-center gap-2">
-              <CheckCircle2 size={12} className="text-green-400 flex-shrink-0" />
-              <span className="text-xs text-text">{f}</span>
+        ) : (
+          <>
+            <div className="flex items-center justify-between mb-4">
+              <div>
+                <p className="text-xs text-muted uppercase tracking-wider mb-1">Current Plan</p>
+                <div className="flex items-center gap-2">
+                  <h2 className="font-display text-xl font-bold text-text capitalize">{plan}</h2>
+                  {billingInfo?.subscriptionStatus === 'trialing' && (
+                    <span className="text-[10px] px-1.5 py-0.5 rounded bg-blue-900/20 text-blue-400 border border-blue-700/30">
+                      Trial
+                    </span>
+                  )}
+                  {billingInfo?.status === 'SUSPENDED' && (
+                    <span className="text-[10px] px-1.5 py-0.5 rounded bg-red-900/20 text-red-400 border border-red-700/30">
+                      Suspended
+                    </span>
+                  )}
+                </div>
+              </div>
+              <button
+                className="btn-secondary text-xs"
+                onClick={handleManage}
+                disabled={isLoading('portal') || !billingInfo?.stripeCustomerId}
+              >
+                {isLoading('portal')
+                  ? <><Loader2 size={12} className="animate-spin" /> Opening...</>
+                  : <><Settings size={12} /> Manage Subscription</>}
+              </button>
             </div>
-          ))}
-        </div>
 
-        <div className="mt-4 pt-4 border-t border-border">
-          <p className="text-xs text-muted">
-            To <strong className="text-text">downgrade</strong> your plan, update payment method, or view invoices, click{' '}
-            <button onClick={handleManage} className="text-lava-400 hover:text-lava-300 underline transition-colors">
-              Manage Subscription
-            </button>{' '}
-            — this opens the Stripe Customer Portal where you can make any changes.
-          </p>
-        </div>
+            {/* Usage */}
+            <div className="grid grid-cols-2 gap-4 mb-5">
+              <div className="bg-obsidian-800 rounded-xl p-3">
+                <p className="text-xs text-muted mb-1">Agents</p>
+                <p className="text-lg font-bold text-text">
+                  {usedAgents}
+                  <span className="text-sm font-normal text-muted"> / {agentMax}</span>
+                </p>
+                {(billingInfo?.addonAgents ?? 0) > 0 && (
+                  <p className="text-xs text-muted mt-0.5">
+                    {billingInfo!.agentBase} base + {billingInfo!.addonAgents} add-on
+                  </p>
+                )}
+              </div>
+              <div className="bg-obsidian-800 rounded-xl p-3">
+                <p className="text-xs text-muted mb-1">Storage Pool</p>
+                <p className="text-lg font-bold text-text">
+                  {storageTotal} GB
+                </p>
+                {storageAddon > 0 && (
+                  <p className="text-xs text-muted mt-0.5">
+                    {billingInfo!.storageBase} GB base + {storageAddon} GB add-on
+                  </p>
+                )}
+              </div>
+            </div>
+
+            {/* Features */}
+            <div className="grid grid-cols-2 gap-y-2">
+              {features.map(f => (
+                <div key={f} className="flex items-center gap-2">
+                  <CheckCircle2 size={12} className="text-green-400 flex-shrink-0" />
+                  <span className="text-xs text-text">{f}</span>
+                </div>
+              ))}
+            </div>
+
+            <div className="mt-4 pt-4 border-t border-border">
+              <p className="text-xs text-muted">
+                To <strong className="text-text">downgrade</strong> your plan, update payment method, or view invoices, click{' '}
+                <button onClick={handleManage} className="text-lava-400 hover:text-lava-300 underline transition-colors">
+                  Manage Subscription
+                </button>.
+              </p>
+            </div>
+          </>
+        )}
       </div>
 
       {/* Add-ons */}
       <div className="mb-6">
         <h2 className="text-sm font-semibold text-text mb-3">Add-Ons</h2>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          {/* Additional agent */}
+
           <div className="card p-4">
             <div className="flex items-start gap-3">
               <div className="w-8 h-8 rounded-lg bg-lava-500/10 flex items-center justify-center">
@@ -225,7 +282,6 @@ export function Billing() {
             </button>
           </div>
 
-          {/* Storage add-ons */}
           <div className="card p-4">
             <div className="flex items-start gap-3 mb-3">
               <div className="w-8 h-8 rounded-lg bg-blue-900/20 flex items-center justify-center">
@@ -233,7 +289,7 @@ export function Billing() {
               </div>
               <div>
                 <p className="text-sm font-medium text-text">Storage</p>
-                <p className="text-xs text-muted">One-time purchase, added to your pool instantly</p>
+                <p className="text-xs text-muted">Added to your pool after purchase</p>
               </div>
             </div>
             <div className="space-y-2">
@@ -256,7 +312,7 @@ export function Billing() {
       </div>
 
       {/* Plan upgrades */}
-      {plan !== 'business' && (
+      {plan !== 'business' && !loadingInfo && (
         <div className="mb-6">
           <h2 className="text-sm font-semibold text-text mb-3">Upgrade Plan</h2>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
