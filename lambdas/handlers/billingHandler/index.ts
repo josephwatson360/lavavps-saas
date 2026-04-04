@@ -21,9 +21,9 @@ import {
 const sm  = new SecretsManagerClient({ region: process.env.AWS_REGION });
 const ddb = new DynamoDBClient({ region: process.env.AWS_REGION });
 
-const TABLE_NAME   = process.env.TABLE_NAME   ?? 'lavavps-main';
-const PORTAL_URL   = process.env.PORTAL_URL   ?? 'https://main.d2fwekdsfw5bt0.amplifyapp.com';
-const PRICE_IDS_SECRET = process.env.PRICE_IDS_SECRET ?? '/openclaw/prod/stripe/price-ids';
+const TABLE_NAME        = process.env.TABLE_NAME        ?? 'lavavps-main';
+const PORTAL_URL        = process.env.PORTAL_URL        ?? 'https://main.d2fwekdsfw5bt0.amplifyapp.com';
+const PRICE_IDS_SECRET  = process.env.PRICE_IDS_SECRET  ?? '/openclaw/prod/stripe/price-ids';
 const STRIPE_SECRET_ARN = process.env.STRIPE_SECRET_ARN ?? '/openclaw/prod/stripe/secret-key';
 
 const CORS = {
@@ -51,13 +51,13 @@ async function getPriceIds(): Promise<Record<string, string>> {
   } catch {
     // Return placeholder IDs — update these in Secrets Manager with real Stripe price IDs
     return {
-      plan_starter:     process.env.STRIPE_PRICE_STARTER     ?? '',
-      plan_pro:         process.env.STRIPE_PRICE_PRO         ?? '',
-      plan_business:    process.env.STRIPE_PRICE_BUSINESS    ?? '',
-      addon_agent:      process.env.STRIPE_PRICE_ADDON_AGENT ?? '',
-      addon_storage_10: process.env.STRIPE_PRICE_STORAGE_10  ?? '',
-      addon_storage_50: process.env.STRIPE_PRICE_STORAGE_50  ?? '',
-      addon_storage_100: process.env.STRIPE_PRICE_STORAGE_100 ?? '',
+      plan_starter:      process.env.STRIPE_PRICE_STARTER      ?? '',
+      plan_pro:          process.env.STRIPE_PRICE_PRO          ?? '',
+      plan_business:     process.env.STRIPE_PRICE_BUSINESS     ?? '',
+      addon_agent:       process.env.STRIPE_PRICE_ADDON_AGENT  ?? '',
+      addon_storage_10:  process.env.STRIPE_PRICE_STORAGE_10   ?? '',
+      addon_storage_50:  process.env.STRIPE_PRICE_STORAGE_50   ?? '',
+      addon_storage_100: process.env.STRIPE_PRICE_STORAGE_100  ?? '',
     };
   }
 }
@@ -77,15 +77,20 @@ async function getStripeCustomerId(tenantId: string): Promise<string | null> {
 export async function handler(
   event: APIGatewayProxyEvent,
 ): Promise<APIGatewayProxyResult> {
-  const path   = event.rawPath ?? '';
+  const path   = event.path ?? '';
   const method = event.httpMethod;
 
-  // Extract tenant context from JWT claims (injected by Cognito authorizer)
-  const claims   = (event.requestContext as any).authorizer?.jwt?.claims ?? {};
-  const tenantId = claims['custom:tenant_id'] as string;
-  const email    = claims['email'] as string;
+  // ── Extract tenant context from JWT claims ─────────────────────────────────
+  // REST API v1: claims live at requestContext.authorizer.claims
+  // (NOT requestContext.authorizer.jwt.claims — that is HTTP API v2 format)
+  const claims   = (event.requestContext as any).authorizer?.claims ?? {};
+  const tenantId = (claims['custom:tenant_id'] as string) ?? '';
+  const email    = (claims['email'] as string) ?? '';
 
-  if (!tenantId) return err('Unauthorized', 401);
+  if (!tenantId) {
+    console.error('billingHandler: missing tenant_id in claims', JSON.stringify({ claims }));
+    return err('Unauthorized', 401);
+  }
 
   // Lazy-load Stripe to avoid bundling issues
   const stripeKey = await getStripeKey();
@@ -133,9 +138,9 @@ export async function handler(
       success_url: `${PORTAL_URL}/billing?checkout=success&session_id={CHECKOUT_SESSION_ID}`,
       cancel_url:  `${PORTAL_URL}/billing?checkout=cancelled`,
       metadata: {
-        tenant_id: tenantId,
+        tenant_id:  tenantId,
         type,
-        plan_code:  planCode ?? '',
+        plan_code:  planCode  ?? '',
         storage_gb: storageGb?.toString() ?? '',
       },
       // 3-day trial for new plan subscriptions

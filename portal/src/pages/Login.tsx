@@ -1,6 +1,6 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { signIn } from 'aws-amplify/auth';
+import { signIn, getCurrentUser } from 'aws-amplify/auth';
 import { Flame, Zap, Shield, Globe, Eye, EyeOff, Loader2 } from 'lucide-react';
 
 export function Login() {
@@ -9,7 +9,16 @@ export function Login() {
   const [password, setPassword] = useState('');
   const [showPw, setShowPw]     = useState(false);
   const [loading, setLoading]   = useState(false);
+  const [checking, setChecking] = useState(true);
   const [error, setError]       = useState('');
+
+  // Guard — if already authenticated, go straight to dashboard
+  useEffect(() => {
+    getCurrentUser()
+      .then(() => navigate('/dashboard', { replace: true }))
+      .catch(() => { /* not signed in — show login form */ })
+      .finally(() => setChecking(false));
+  }, [navigate]);
 
   async function handleSignIn(e: React.FormEvent) {
     e.preventDefault();
@@ -24,6 +33,20 @@ export function Login() {
     } finally {
       setLoading(false);
     }
+  }
+
+  // Show nothing while checking auth state — prevents login form flash
+  if (checking) {
+    return (
+      <div className="fixed inset-0 bg-obsidian-950 flex items-center justify-center">
+        <div className="flex flex-col items-center gap-4">
+          <div className="w-10 h-10 rounded-xl bg-lava-500/10 border border-lava-500/30 flex items-center justify-center animate-pulse-lava">
+            <Flame size={20} className="text-lava-400" />
+          </div>
+          <p className="text-sm text-muted">Loading...</p>
+        </div>
+      </div>
+    );
   }
 
   return (

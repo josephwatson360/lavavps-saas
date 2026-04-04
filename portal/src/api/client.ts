@@ -1,5 +1,5 @@
 import axios, { AxiosInstance } from 'axios';
-import { fetchAuthSession } from 'aws-amplify/auth';
+import { fetchAuthSession, signOut } from 'aws-amplify/auth';
 import { API_BASE } from '@/aws-exports';
 import type {
   Agent, AgentConfig, AgentConfigResponse, ModelsResponse,
@@ -34,9 +34,23 @@ function createApiClient(): AxiosInstance {
   // Standard error handling
   client.interceptors.response.use(
     (res) => res,
-    (err) => {
+    async (err) => {
       if (err.response?.status === 401) {
-        // Token expired or invalid — Amplify Auth will handle refresh
+        // First try silently refreshing the token
+        try {
+          const session = await fetchAuthSession({ forceRefresh: true });
+          const token   = session.tokens?.idToken?.toString();
+          if (token) {
+            // Retry the original request with the fresh token
+            err.config.headers.Authorization = `Bearer ${token}`;
+            return client(err.config);
+          }
+        } catch {
+          // Refresh failed — fall through to sign out
+        }
+        // Token refresh failed — sign out cleanly so Login page
+        // doesn't see stale Amplify state and throw "already signed in"
+        try { await signOut(); } catch { /* ignore */ }
         window.location.href = '/login';
       }
       return Promise.reject(err);
@@ -160,7 +174,6 @@ export const jobsApi = {
   cancel: (agentId: string, jobId: string) =>
     api.delete(`/agents/${agentId}/jobs/${jobId}`),
 };
-
 
 // ── Billing ───────────────────────────────────────────────────────────────────
 
