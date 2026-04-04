@@ -6,6 +6,7 @@ import {
 } from 'lucide-react';
 import { clsx }         from 'clsx';
 import { filesApi }     from '@/api/client';
+import api              from '@/api/client';
 import { useStore, toast } from '@/store/useStore';
 import type { WorkspaceFile } from '@/api/types';
 
@@ -23,10 +24,20 @@ export function FileManager() {
   const [files, setFiles]         = useState<WorkspaceFile[]>([]);
   const [loading, setLoading]     = useState(true);
   const [uploading, setUploading] = useState(false);
-  const [quotaGb, setQuotaGb]     = useState(5);
+  const [quotaGb, setQuotaGb]     = useState(0);
   const [usedGb, setUsedGb]       = useState(0);
   const [dragOver, setDragOver]   = useState(false);
   const fileInputRef              = useRef<HTMLInputElement>(null);
+
+  // Load quota from billing API when no agent exists
+  // so the correct account-level storage is always displayed
+  useEffect(() => {
+    if (agentId) return; // handled by loadFiles()
+    api.get<{ storageTotal: number }>('/billing')
+      .then(r => setQuotaGb(r.data.storageTotal))
+      .catch(() => setQuotaGb(0))
+      .finally(() => setLoading(false));
+  }, [agentId]);
 
   async function loadFiles() {
     if (!agentId) return;
@@ -121,7 +132,6 @@ export function FileManager() {
           <p className="text-sm text-muted mt-1">Agent workspace — EFS storage</p>
         </div>
 
-        {/* Agent selector */}
         {agents.length > 1 && (
           <select className="input w-48" value={agentId} onChange={() => {}}>
             {agents.map(a => (
@@ -146,7 +156,7 @@ export function FileManager() {
             )}
           </div>
           <span className="text-xs text-muted font-mono">
-            {usedGb.toFixed(2)} GB / {quotaGb} GB
+            {usedGb.toFixed(2)} GB / {quotaGb > 0 ? `${quotaGb} GB` : '—'}
           </span>
         </div>
         <div className="w-full h-1.5 rounded-full bg-obsidian-700">
@@ -159,9 +169,9 @@ export function FileManager() {
           />
         </div>
         {nearQuota && (
-          <button className="mt-3 btn-primary text-xs px-3 py-1.5">
+          <a href="/billing" className="mt-3 btn-primary text-xs px-3 py-1.5 inline-block">
             Purchase Additional Storage
-          </button>
+          </a>
         )}
       </div>
 
@@ -172,6 +182,7 @@ export function FileManager() {
           dragOver
             ? 'border-lava-500/60 bg-lava-500/5'
             : 'border-border hover:border-obsidian-500',
+          !agentId && 'opacity-50 pointer-events-none',
         )}
         onDragOver={e => { e.preventDefault(); setDragOver(true); }}
         onDragLeave={() => setDragOver(false)}
