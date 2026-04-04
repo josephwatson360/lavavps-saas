@@ -227,10 +227,9 @@ export class BillingStack extends cdk.Stack {
       resources: [Config.deployed.dynamoTableArn,
                   `${Config.deployed.dynamoTableArn}/index/*`],
     }));
-    webhookFn.addToRolePolicy(new iam.PolicyStatement({
-      actions:   ['secretsmanager:GetSecretValue'],
-      resources: [stripeWebhookSecret.secretArn],
-    }));
+    // grantRead handles the ARN suffix wildcard correctly (fromSecretNameV2
+    // generates ???? placeholders that are NOT wildcards in IAM policies)
+    stripeWebhookSecret.grantRead(webhookFn);
     webhookFn.addToRolePolicy(new iam.PolicyStatement({
       actions:   ['states:StartExecution'],
       resources: [stateMachine.stateMachineArn],
