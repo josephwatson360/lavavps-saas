@@ -29,7 +29,7 @@ const AWS_REGION = process.env.AWS_REGION_NAME;
 const AWS_ACCOUNT = process.env.AWS_ACCOUNT;
 const SUPPORTED_PROVIDERS = ['anthropic', 'openai', 'google', 'xai', 'mistral', 'cohere'];
 const handler = async (event) => {
-    const tenantId = event.requestContext.authorizer?.claims?.['custom:tenant_id'];
+    const tenantId = event.requestContext.authorizer?.tenantId;
     const agentId = event.pathParameters?.agentId;
     if (!tenantId || !agentId)
         return (0, response_1.badRequest)('Missing tenant or agent context');

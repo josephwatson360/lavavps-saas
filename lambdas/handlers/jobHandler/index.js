@@ -22,8 +22,8 @@ const logger = (0, logger_1.createLogger)('jobHandler');
 const dynamo = lib_dynamodb_1.DynamoDBDocumentClient.from(new client_dynamodb_1.DynamoDBClient({}));
 const TABLE_NAME = process.env.TABLE_NAME;
 const handler = async (event) => {
-    const tenantId = event.requestContext.authorizer?.claims?.['custom:tenant_id'];
-    const planCode = event.requestContext.authorizer?.claims?.['custom:plan_code'] ?? 'starter';
+    const tenantId = event.requestContext.authorizer?.tenantId;
+    const planCode = event.requestContext.authorizer?.planCode ?? 'starter';
     const agentId = event.pathParameters?.agentId;
     const jobId = event.pathParameters?.jobId;
     if (!tenantId || !agentId)

@@ -25,8 +25,8 @@ const TABLE_NAME = process.env.TABLE_NAME;
 const CONFIG_RENDERER_ARN = process.env.CONFIG_RENDERER_ARN;
 const SUPPORTED_CHANNELS = ['discord', 'telegram', 'whatsapp'];
 const handler = async (event) => {
-    const tenantId = event.requestContext.authorizer?.claims?.['custom:tenant_id'];
-    const planCode = event.requestContext.authorizer?.claims?.['custom:plan_code'] ?? 'starter';
+    const tenantId = event.requestContext.authorizer?.tenantId;
+    const planCode = event.requestContext.authorizer?.planCode ?? 'starter';
     const agentId = event.pathParameters?.agentId;
     const channelName = event.pathParameters?.channelName;
     if (!tenantId || !agentId)

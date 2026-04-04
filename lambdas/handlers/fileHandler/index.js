@@ -26,7 +26,7 @@ const TABLE_NAME = process.env.TABLE_NAME;
 const CHAT_BUCKET = process.env.CHAT_BUCKET ?? `lavavps-chat-history-${process.env.AWS_ACCOUNT}`;
 const MAX_FILE_SIZE_BYTES = 100 * 1024 * 1024; // 100 MB per file
 const handler = async (event) => {
-    const tenantId = event.requestContext.authorizer?.claims?.['custom:tenant_id'];
+    const tenantId = event.requestContext.authorizer?.tenantId;
     const agentId = event.pathParameters?.agentId;
     const fileKey = event.pathParameters?.fileKey
         ? decodeURIComponent(event.pathParameters.fileKey)

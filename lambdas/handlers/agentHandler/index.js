@@ -23,8 +23,8 @@ const PLAN_AGENT_LIMITS = {
     business: 10,
 };
 const handler = async (event) => {
-    const tenantId = event.requestContext.authorizer?.claims?.['custom:tenant_id'];
-    const planCode = event.requestContext.authorizer?.claims?.['custom:plan_code'] ?? 'starter';
+    const tenantId = event.requestContext.authorizer?.tenantId;
+    const planCode = event.requestContext.authorizer?.planCode ?? 'starter';
     const agentId = event.pathParameters?.agentId;
     if (!tenantId)
         return (0, response_1.badRequest)('Missing tenant context');

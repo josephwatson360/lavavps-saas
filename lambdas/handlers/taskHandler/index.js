@@ -32,8 +32,8 @@ const PLAN_TASK_DEFS = {
 const PRIVATE_SUBNETS = process.env.PRIVATE_SUBNETS?.split(',') ?? [];
 const FARGATE_SG_ID = process.env.FARGATE_SG_ID;
 const handler = async (event) => {
-    const tenantId = event.requestContext.authorizer?.claims?.['custom:tenant_id'];
-    const planCode = event.requestContext.authorizer?.claims?.['custom:plan_code'] ?? 'starter';
+    const tenantId = event.requestContext.authorizer?.tenantId;
+    const planCode = event.requestContext.authorizer?.planCode ?? 'starter';
     const agentId = event.pathParameters?.agentId;
     const action = event.pathParameters?.action; // start | stop
     if (!tenantId || !agentId)

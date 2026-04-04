@@ -156,7 +156,7 @@ export function NewAgentWizard() {
       {step === 1 && (
         <div className="space-y-4 animate-fade-in">
           <div className="mb-2">
-            <label className="label">Agent name (optional)</label>
+            <label className="label">Agent name</label>
             <input
               className="input"
               placeholder="My assistant"
@@ -198,7 +198,7 @@ export function NewAgentWizard() {
             <div>
               <p className="text-sm font-semibold text-text">{providerInfo.name}</p>
               <a
-                href={`https://console.anthropic.com/settings/keys`}
+                href={provider === 'openai' ? 'https://platform.openai.com/api-keys' : provider === 'google' ? 'https://aistudio.google.com/apikey' : provider === 'xai' ? 'https://console.x.ai/' : provider === 'mistral' ? 'https://console.mistral.ai/api-keys' : provider === 'cohere' ? 'https://dashboard.cohere.com/api-keys' : 'https://console.anthropic.com/settings/keys'}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="text-xs text-lava-400 hover:text-lava-300 transition-colors"
