@@ -2,7 +2,7 @@ import { useEffect, useState, useRef } from 'react';
 import { useParams } from 'react-router-dom';
 import {
   Upload, Download, Trash2, File, FolderOpen, Loader2,
-  AlertTriangle, HardDrive, Plus, X,
+  AlertTriangle, HardDrive, Plus, X, AlertCircle,
 } from 'lucide-react';
 import { clsx }         from 'clsx';
 import { filesApi }     from '@/api/client';
@@ -97,6 +97,23 @@ export function FileManager() {
 
   return (
     <div className="max-w-4xl mx-auto px-6 py-8">
+      {/* No agents warning */}
+      {agents.length === 0 && (
+        <div className="mb-6 p-4 rounded-xl border border-yellow-900/40 bg-yellow-900/10 flex items-start gap-3">
+          <AlertCircle size={16} className="text-yellow-400 flex-shrink-0 mt-0.5" />
+          <div>
+            <p className="text-sm font-medium text-yellow-300">No agents provisioned yet</p>
+            <p className="text-xs text-yellow-400/70 mt-0.5">
+              File uploads require an active agent. Each agent has its own EFS workspace.{' '}
+              <a href="/new-agent" className="underline hover:text-yellow-300 transition-colors">
+                Create an agent first
+              </a>{' '}
+              to start uploading files.
+            </p>
+          </div>
+        </div>
+      )}
+
       {/* Header */}
       <div className="flex items-center justify-between mb-6">
         <div>

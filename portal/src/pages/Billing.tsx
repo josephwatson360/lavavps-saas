@@ -141,14 +141,15 @@ export function Billing() {
               <PlanCard
                 name="Pro"
                 price="$79/mo"
-                features={['5 agents', '50 GB storage', 'Ralph Loop', 'WhatsApp']}
+                features={['4 agents', '50 GB storage', 'Ralph Loop / Auto Tasks', 'Discord + Telegram + WhatsApp Channel Integrations', '30-min idle timeout']}
                 onUpgrade={() => openStripe(STRIPE_LINKS.upgrade_pro)}
+                highlight
               />
             )}
             <PlanCard
               name="Business"
               price="$199/mo"
-              features={['10 agents', '100 GB storage', 'All Channel Integrations', '1 vCPU/2 GB']}
+              features={['10 agents', '100 GB storage', 'All Channel Integrations', '1 vCPU / 2 GB', 'Audit logs', '60-min idle timeout']}
               onUpgrade={() => openStripe(STRIPE_LINKS.upgrade_biz)}
             />
           </div>
