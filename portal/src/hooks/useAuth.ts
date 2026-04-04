@@ -16,7 +16,7 @@ export function useAuth() {
     try {
       await getCurrentUser();
       const session = await fetchAuthSession();
-      const claims  = session.tokens?.accessToken?.payload;
+      const claims  = session.tokens?.idToken?.payload;
 
       if (claims) {
         const ctx: TenantContext = {
