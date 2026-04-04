@@ -28,7 +28,7 @@ export function Dashboard() {
   useEffect(() => { load(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const running  = agents.filter(a => a.status === 'RUNNING').length;
-  const agentMax = { starter: 1, pro: 5, business: 10 }[tenant?.planCode ?? 'starter'] ?? 1;
+  const agentMax = { starter: 2, pro: 4, business: 10 }[tenant?.planCode ?? 'starter'] ?? 2;
   const canAdd   = agents.length < agentMax;
 
   return (

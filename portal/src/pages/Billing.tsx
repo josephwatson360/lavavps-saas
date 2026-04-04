@@ -2,9 +2,9 @@ import { CreditCard, Zap, HardDrive, Plus, ExternalLink, CheckCircle2 } from 'lu
 import { useStore } from '@/store/useStore';
 
 const PLAN_FEATURES: Record<string, string[]> = {
-  starter:  ['1 agent', '5 GB storage', '0.25 vCPU / 1 GB RAM', 'Fargate Spot', 'Discord + Telegram', '15-min idle timeout'],
-  pro:      ['5 agents', '50 GB storage', '0.5 vCPU / 1 GB RAM', 'Ralph Loop / Auto Tasks', 'WhatsApp included', '30-min idle timeout'],
-  business: ['10 agents', '100 GB storage', '1 vCPU / 2 GB RAM', 'Audit logs', 'Priority API', '60-min idle timeout'],
+  starter:  ['2 agents', '5 GB storage', '0.25 vCPU / 1 GB RAM', 'Discord + Telegram Channel Integrations', '15-min idle timeout'],
+  pro:      ['4 agents', '50 GB storage', '0.5 vCPU / 1 GB RAM', 'Ralph Loop / Auto Tasks', 'Discord + Telegram + WhatsApp Channel Integrations', '30-min idle timeout'],
+  business: ['10 agents', '100 GB storage', '1 vCPU / 2 GB RAM', 'All Channel Integrations', 'Audit logs', 'Priority API', '60-min idle timeout'],
 };
 
 const STORAGE_ADDONS = [
@@ -28,7 +28,7 @@ export function Billing() {
   const { tenant, agents } = useStore();
   const plan     = tenant?.planCode ?? 'starter';
   const features = PLAN_FEATURES[plan] ?? [];
-  const agentMax = { starter: 1, pro: 5, business: 10 }[plan] ?? 1;
+  const agentMax = { starter: 2, pro: 4, business: 10 }[plan] ?? 2;
   const usedAgents = agents.length;
 
   function openStripe(url: string) {
@@ -148,9 +148,8 @@ export function Billing() {
             <PlanCard
               name="Business"
               price="$199/mo"
-              features={['10 agents', '100 GB storage', 'Audit logs', '1 vCPU/2 GB']}
+              features={['10 agents', '100 GB storage', 'All Channel Integrations', '1 vCPU/2 GB']}
               onUpgrade={() => openStripe(STRIPE_LINKS.upgrade_biz)}
-              highlight
             />
           </div>
         </div>
