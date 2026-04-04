@@ -5,7 +5,7 @@ const client_ecs_1 = require("@aws-sdk/client-ecs");
 const client_dynamodb_1 = require("@aws-sdk/client-dynamodb");
 const lib_dynamodb_1 = require("@aws-sdk/lib-dynamodb");
 const client_sns_1 = require("@aws-sdk/client-sns");
-const logger_1 = require("../../layer/src/logger");
+const logger_1 = require("./logger");
 // ─────────────────────────────────────────────────────────────────────────────
 // taskWatcherLambda
 //

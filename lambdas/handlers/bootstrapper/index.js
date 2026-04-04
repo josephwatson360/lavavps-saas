@@ -37,7 +37,7 @@ exports.handler = void 0;
 const client_s3_1 = require("@aws-sdk/client-s3");
 const fs = __importStar(require("fs"));
 const path = __importStar(require("path"));
-const logger_1 = require("../../layer/src/logger");
+const logger_1 = require("./logger");
 // ─────────────────────────────────────────────────────────────────────────────
 // bootstrapperLambda
 //

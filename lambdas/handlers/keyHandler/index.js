@@ -5,8 +5,8 @@ const client_secrets_manager_1 = require("@aws-sdk/client-secrets-manager");
 const client_dynamodb_1 = require("@aws-sdk/client-dynamodb");
 const lib_dynamodb_1 = require("@aws-sdk/lib-dynamodb");
 const client_lambda_1 = require("@aws-sdk/client-lambda");
-const logger_1 = require("../../layer/src/logger");
-const response_1 = require("../../layer/src/response");
+const logger_1 = require("./logger");
+const response_1 = require("./response");
 // ─────────────────────────────────────────────────────────────────────────────
 // keyHandler
 //

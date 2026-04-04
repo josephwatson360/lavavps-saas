@@ -9,7 +9,7 @@ const client_iam_1 = require("@aws-sdk/client-iam");
 const client_s3_1 = require("@aws-sdk/client-s3");
 const client_lambda_1 = require("@aws-sdk/client-lambda");
 const client_sesv2_1 = require("@aws-sdk/client-sesv2");
-const logger_1 = require("../../layer/src/logger");
+const logger_1 = require("./logger");
 const crypto_1 = require("crypto");
 // ─────────────────────────────────────────────────────────────────────────────
 // provisioningLambda

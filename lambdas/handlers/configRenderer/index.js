@@ -5,7 +5,7 @@ const client_s3_1 = require("@aws-sdk/client-s3");
 const client_dynamodb_1 = require("@aws-sdk/client-dynamodb");
 const lib_dynamodb_1 = require("@aws-sdk/lib-dynamodb");
 const client_lambda_1 = require("@aws-sdk/client-lambda");
-const logger_1 = require("../../layer/src/logger");
+const logger_1 = require("./logger");
 // ─────────────────────────────────────────────────────────────────────────────
 // configRenderer
 //

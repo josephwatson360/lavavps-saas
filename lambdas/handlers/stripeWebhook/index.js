@@ -39,7 +39,7 @@ const client_dynamodb_1 = require("@aws-sdk/client-dynamodb");
 const lib_dynamodb_1 = require("@aws-sdk/lib-dynamodb");
 const client_sfn_1 = require("@aws-sdk/client-sfn");
 const crypto_1 = require("crypto");
-const logger_1 = require("../../layer/src/logger");
+const logger_1 = require("./logger");
 // ─────────────────────────────────────────────────────────────────────────────
 // stripeWebhookHandler
 //

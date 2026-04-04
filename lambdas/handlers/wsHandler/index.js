@@ -4,7 +4,7 @@ exports.handler = void 0;
 const client_apigatewaymanagementapi_1 = require("@aws-sdk/client-apigatewaymanagementapi");
 const client_dynamodb_1 = require("@aws-sdk/client-dynamodb");
 const lib_dynamodb_1 = require("@aws-sdk/lib-dynamodb");
-const logger_1 = require("../../layer/src/logger");
+const logger_1 = require("./logger");
 // ─────────────────────────────────────────────────────────────────────────────
 // wsHandler
 //

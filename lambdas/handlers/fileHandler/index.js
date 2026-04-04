@@ -5,8 +5,8 @@ const client_s3_1 = require("@aws-sdk/client-s3");
 const s3_request_presigner_1 = require("@aws-sdk/s3-request-presigner");
 const client_dynamodb_1 = require("@aws-sdk/client-dynamodb");
 const lib_dynamodb_1 = require("@aws-sdk/lib-dynamodb");
-const logger_1 = require("../../layer/src/logger");
-const response_1 = require("../../layer/src/response");
+const logger_1 = require("./logger");
+const response_1 = require("./response");
 // ─────────────────────────────────────────────────────────────────────────────
 // fileHandler
 //
