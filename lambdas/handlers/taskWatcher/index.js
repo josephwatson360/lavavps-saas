@@ -45,7 +45,7 @@ const handler = async () => {
         IndexName: 'byAgentStatus',
         KeyConditionExpression: 'gsi2pk = :status',
         ExpressionAttributeValues: { ':status': 'STATUS#RUNNING' },
-        ProjectionExpression: 'pk, sk, tenant_id, agent_id, plan_code, task_arn, last_activity_at, idle_timeout_min, restart_count, last_restart_at',
+        ProjectionExpression: 'pk, sk, tenant_id, agent_id, plan_code, task_arn, last_activity_at, idle_timeout_min',
     }));
     const runningTasks = runningResult.Items ?? [];
     logger.info(`Found ${runningTasks.length} running tasks`);
@@ -106,8 +106,8 @@ const handler = async () => {
             continue;
         }
         // ── Check crash loop ────────────────────────────────────────────────
-        const restartCount = task.restart_count ?? 0;
-        const lastRestartAt = task.last_restart_at;
+        const restartCount = 0;
+        const lastRestartAt = null;
         const lastRestart = lastRestartAt ? new Date(lastRestartAt) : null;
         const restartAgeMs = lastRestart ? now.getTime() - lastRestart.getTime() : Infinity;
         const windowMs = CRASH_LOOP_WINDOW * 60 * 1000;
