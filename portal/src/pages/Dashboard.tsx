@@ -8,7 +8,7 @@ import { useStore, toast } from '@/store/useStore';
 
 export function Dashboard() {
   const navigate  = useNavigate();
-  const { agents, setAgents } = useStore();
+  const { agents, setAgents, tenant } = useStore();
   const [loading, setLoading]  = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [agentMax, setAgentMax] = useState(2);
