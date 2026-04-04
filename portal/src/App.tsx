@@ -1,3 +1,4 @@
+import { getCurrentUser } from 'aws-amplify/auth';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { useAuth }        from '@/hooks/useAuth';
 import { Layout }         from '@/components/Layout';
@@ -72,8 +73,29 @@ export default function App() {
   );
 }
 
-// Cognito OAuth callback handler
+// Cognito OAuth callback handler — waits for token exchange then redirects
 function AuthCallback() {
+  const navigate = useNavigate();
+  useEffect(() => {
+    // Amplify processes the OAuth code automatically on mount.
+    // Poll until authenticated then redirect to dashboard.
+    let attempts = 0;
+    const interval = setInterval(async () => {
+      attempts++;
+      try {
+        await getCurrentUser();
+        clearInterval(interval);
+        navigate('/dashboard', { replace: true });
+      } catch {
+        if (attempts > 20) { // 10 seconds max
+          clearInterval(interval);
+          navigate('/login', { replace: true });
+        }
+      }
+    }, 500);
+    return () => clearInterval(interval);
+  }, [navigate]);
+
   return (
     <div className="fixed inset-0 bg-obsidian-950 flex items-center justify-center">
       <div className="flex flex-col items-center gap-4">
