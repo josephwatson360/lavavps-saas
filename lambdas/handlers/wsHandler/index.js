@@ -42,10 +42,21 @@ const handler = async (event) => {
     });
     // ── $connect ────────────────────────────────────────────────────────────
     if (routeKey === '$connect') {
-        const ctx = event.requestContext;
-        const tenantId = ctx.authorizer?.claims?.['custom:tenant_id'];
-        const ev2 = event;
-        const agentId = ev2.queryStringParameters?.agentId;
+        const qsp = event.queryStringParameters ?? {};
+        const agentId = qsp.agentId;
+        // Decode JWT from ?token= query param (WS browsers cannot send headers)
+        let tenantId = '';
+        let planCode = 'starter';
+        try {
+            const token = qsp.token ?? '';
+            const parts = token.split('.');
+            const payload = JSON.parse(Buffer.from(parts[1], 'base64').toString('utf8'));
+            tenantId = payload['custom:tenant_id'] ?? '';
+            planCode = payload['custom:plan_code'] ?? 'starter';
+        } catch(e) {
+            logger.warn('WS connect: invalid JWT', { connectionId });
+            return { statusCode: 401 };
+        }
         if (!tenantId || !agentId) {
             logger.warn('WS connect rejected: missing tenant or agent', { connectionId });
             return { statusCode: 401 };
