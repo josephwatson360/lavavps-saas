@@ -4,6 +4,7 @@ import * as efs     from 'aws-cdk-lib/aws-efs';
 import * as iam     from 'aws-cdk-lib/aws-iam';
 import * as kms     from 'aws-cdk-lib/aws-kms';
 import * as lambda  from 'aws-cdk-lib/aws-lambda';
+import { NodejsFunction, OutputFormat } from 'aws-cdk-lib/aws-lambda-nodejs';
 import * as logs    from 'aws-cdk-lib/aws-logs';
 import * as cognito from 'aws-cdk-lib/aws-cognito';
 import * as apigw   from 'aws-cdk-lib/aws-apigateway';
@@ -122,7 +123,7 @@ export class ControlPlaneStack extends cdk.Stack {
 
     const ecsPolicy = new iam.PolicyStatement({
       actions:   ['ecs:RunTask', 'ecs:StopTask', 'ecs:DescribeTasks',
-                  'ecs:DescribeServices', 'ecs:UpdateService'],
+                  'ecs:DescribeServices', 'ecs:UpdateService', 'ecs:TagResource'],
       resources: ['*'],
       conditions: {
         ArnLike: {
@@ -133,7 +134,11 @@ export class ControlPlaneStack extends cdk.Stack {
 
     const iamPassRolePolicy = new iam.PolicyStatement({
       actions:   ['iam:PassRole'],
-      resources: [`arn:aws:iam::${Config.account}:role/lavavps-*`],
+      resources: [
+        `arn:aws:iam::${Config.account}:role/lavavps-*`,
+        `arn:aws:iam::${Config.account}:role/openclaw-task-role`,
+        `arn:aws:iam::${Config.account}:role/openclaw-task-execution-role`,
+      ],
     });
 
     const elbPolicy = new iam.PolicyStatement({
@@ -148,6 +153,16 @@ export class ControlPlaneStack extends cdk.Stack {
       actions:   ['kms:Decrypt', 'kms:GenerateDataKey'],
       resources: [Config.deployed.cmkArn],
     });
+
+    // ── NodejsFunction base bundling config ──────────────────────────────
+    // Used by all TypeScript handlers — esbuild compiles at cdk deploy time.
+    // @aws-sdk/* excluded: provided by Lambda runtime, keeps bundle small.
+    const nodejsBundling = {
+      minify:          true,
+      sourceMap:       true,
+      externalModules: ['@aws-sdk/*'],
+      target:          'node22',
+    };
 
     // ── VPC Lambda config (for EFS access) ───────────────────────────────
     const vpcLambdaProps = {
@@ -201,12 +216,13 @@ export class ControlPlaneStack extends cdk.Stack {
     );
 
     // ── configRenderer ────────────────────────────────────────────────────
-    const configRendererFn = new lambda.Function(this, 'ConfigRendererFn', {
+    const configRendererFn = new NodejsFunction(this, 'ConfigRendererFn', {
       ...baseLambdaProps as lambda.FunctionProps,
       functionName: 'lavavps-config-renderer',
       description:  'Renders locked openclaw.json from tenant DynamoDB values, validates, writes to S3/EFS',
-      code:         lambda.Code.fromAsset('lambdas/handlers/configRenderer'),
-      handler:      'index.handler',
+      entry:        'lambdas/handlers/configRenderer/index.ts',
+      handler:      'handler',
+      bundling:     nodejsBundling,
       timeout:      cdk.Duration.seconds(60),
       environment: {
         ...commonEnv,
@@ -222,12 +238,13 @@ export class ControlPlaneStack extends cdk.Stack {
     }));
 
     // ── configHandler ─────────────────────────────────────────────────────
-    const configHandlerFn = new lambda.Function(this, 'ConfigHandlerFn', {
+    const configHandlerFn = new NodejsFunction(this, 'ConfigHandlerFn', {
       ...baseLambdaProps as lambda.FunctionProps,
       functionName: 'lavavps-config-handler',
       description:  'Allowlist validates config fields, writes to DynamoDB, invokes configRenderer',
-      code:         lambda.Code.fromAsset('lambdas/handlers/configHandler'),
-      handler:      'index.handler',
+      entry:        'lambdas/handlers/configHandler/index.ts',
+      handler:      'handler',
+      bundling:     nodejsBundling,
       environment: {
         ...commonEnv,
         CONFIG_RENDERER_ARN: configRendererFn.functionArn,
@@ -241,23 +258,25 @@ export class ControlPlaneStack extends cdk.Stack {
     }));
 
     // ── agentHandler ─────────────────────────────────────────────────────
-    const agentHandlerFn = new lambda.Function(this, 'AgentHandlerFn', {
+    const agentHandlerFn = new NodejsFunction(this, 'AgentHandlerFn', {
       ...baseLambdaProps as lambda.FunctionProps,
       functionName: 'lavavps-agent-handler',
       description:  'Agent CRUD with plan quota enforcement',
-      code:         lambda.Code.fromAsset('lambdas/handlers/agentHandler'),
-      handler:      'index.handler',
+      entry:        'lambdas/handlers/agentHandler/index.ts',
+      handler:      'handler',
+      bundling:     nodejsBundling,
     });
     agentHandlerFn.addToRolePolicy(dynamoPolicy);
     agentHandlerFn.addToRolePolicy(kmsPolicy);
 
     // ── keyHandler ────────────────────────────────────────────────────────
-    const keyHandlerFn = new lambda.Function(this, 'KeyHandlerFn', {
+    const keyHandlerFn = new NodejsFunction(this, 'KeyHandlerFn', {
       ...baseLambdaProps as lambda.FunctionProps,
       functionName: 'lavavps-key-handler',
       description:  'LLM provider API key storage in Secrets Manager',
-      code:         lambda.Code.fromAsset('lambdas/handlers/keyHandler'),
-      handler:      'index.handler',
+      entry:        'lambdas/handlers/keyHandler/index.ts',
+      handler:      'handler',
+      bundling:     nodejsBundling,
       environment: {
         ...commonEnv,
         CONFIG_RENDERER_ARN: configRendererFn.functionArn,
@@ -272,12 +291,13 @@ export class ControlPlaneStack extends cdk.Stack {
     }));
 
     // ── modelsHandler ─────────────────────────────────────────────────────
-    const modelsHandlerFn = new lambda.Function(this, 'ModelsHandlerFn', {
+    const modelsHandlerFn = new NodejsFunction(this, 'ModelsHandlerFn', {
       ...baseLambdaProps as lambda.FunctionProps,
       functionName: 'lavavps-models-handler',
       description:  'Dynamic model list from LLM provider APIs (1hr cache)',
-      code:         lambda.Code.fromAsset('lambdas/handlers/modelsHandler'),
-      handler:      'index.handler',
+      entry:        'lambdas/handlers/modelsHandler/index.ts',
+      handler:      'handler',
+      bundling:     nodejsBundling,
       timeout:      cdk.Duration.seconds(15),
     });
     modelsHandlerFn.addToRolePolicy(dynamoPolicy);
@@ -285,12 +305,13 @@ export class ControlPlaneStack extends cdk.Stack {
     modelsHandlerFn.addToRolePolicy(kmsPolicy);
 
     // ── taskHandler ───────────────────────────────────────────────────────
-    const taskHandlerFn = new lambda.Function(this, 'TaskHandlerFn', {
+    const taskHandlerFn = new NodejsFunction(this, 'TaskHandlerFn', {
       ...baseLambdaProps as lambda.FunctionProps,
       functionName: 'lavavps-task-handler',
       description:  'ECS task start/stop with pre-wake readyz polling',
-      code:         lambda.Code.fromAsset('lambdas/handlers/taskHandler'),
-      handler:      'index.handler',
+      entry:        'lambdas/handlers/taskHandler/index.ts',
+      handler:      'handler',
+      bundling:     nodejsBundling,
       timeout:      cdk.Duration.seconds(90), // pre-wake polls up to 45s
       environment: {
         ...commonEnv,
@@ -305,12 +326,13 @@ export class ControlPlaneStack extends cdk.Stack {
     taskHandlerFn.addToRolePolicy(kmsPolicy);
 
     // ── channelHandler ────────────────────────────────────────────────────
-    const channelHandlerFn = new lambda.Function(this, 'ChannelHandlerFn', {
+    const channelHandlerFn = new NodejsFunction(this, 'ChannelHandlerFn', {
       ...baseLambdaProps as lambda.FunctionProps,
       functionName: 'lavavps-channel-handler',
       description:  'Discord/Telegram/WhatsApp channel credential management',
-      code:         lambda.Code.fromAsset('lambdas/handlers/channelHandler'),
-      handler:      'index.handler',
+      entry:        'lambdas/handlers/channelHandler/index.ts',
+      handler:      'handler',
+      bundling:     nodejsBundling,
       environment: {
         ...commonEnv,
         CONFIG_RENDERER_ARN: configRendererFn.functionArn,
@@ -324,12 +346,13 @@ export class ControlPlaneStack extends cdk.Stack {
     }));
 
     // ── fileHandler ───────────────────────────────────────────────────────
-    const fileHandlerFn = new lambda.Function(this, 'FileHandlerFn', {
+    const fileHandlerFn = new NodejsFunction(this, 'FileHandlerFn', {
       ...baseLambdaProps as lambda.FunctionProps,
       functionName: 'lavavps-file-handler',
       description:  'EFS workspace file management with storage quota enforcement',
-      code:         lambda.Code.fromAsset('lambdas/handlers/fileHandler'),
-      handler:      'index.handler',
+      entry:        'lambdas/handlers/fileHandler/index.ts',
+      handler:      'handler',
+      bundling:     nodejsBundling,
     });
     fileHandlerFn.addToRolePolicy(dynamoPolicy);
     fileHandlerFn.addToRolePolicy(new iam.PolicyStatement({
@@ -342,12 +365,13 @@ export class ControlPlaneStack extends cdk.Stack {
     fileHandlerFn.addToRolePolicy(kmsPolicy);
 
     // ── wsHandler ─────────────────────────────────────────────────────────
-    const wsHandlerFn = new lambda.Function(this, 'WsHandlerFn', {
+    const wsHandlerFn = new NodejsFunction(this, 'WsHandlerFn', {
       ...baseLambdaProps as lambda.FunctionProps,
       functionName: 'lavavps-ws-handler',
       description:  'WebSocket relay: portal <-> OpenClaw agent',
-      code:         lambda.Code.fromAsset('lambdas/handlers/wsHandler'),
-      handler:      'index.handler',
+      entry:        'lambdas/handlers/wsHandler/index.ts',
+      handler:      'handler',
+      bundling:     nodejsBundling,
       timeout:      cdk.Duration.seconds(29), // API GW WS max
       ...vpcLambdaProps,
     });
@@ -359,12 +383,13 @@ export class ControlPlaneStack extends cdk.Stack {
     wsHandlerFn.addToRolePolicy(kmsPolicy);
 
     // ── taskWatcherLambda ─────────────────────────────────────────────────
-    const taskWatcherFn = new lambda.Function(this, 'TaskWatcherFn', {
+    const taskWatcherFn = new NodejsFunction(this, 'TaskWatcherFn', {
       ...baseLambdaProps as lambda.FunctionProps,
       functionName: 'lavavps-task-watcher',
       description:  'Scheduled: idle timeout enforcement + crash loop detection',
-      code:         lambda.Code.fromAsset('lambdas/handlers/taskWatcher'),
-      handler:      'index.handler',
+      entry:        'lambdas/handlers/taskWatcher/index.ts',
+      handler:      'handler',
+      bundling:     nodejsBundling,
       timeout:      cdk.Duration.seconds(60),
       environment: {
         ...commonEnv,
@@ -385,12 +410,13 @@ export class ControlPlaneStack extends cdk.Stack {
     });
 
     // ── jobHandler ────────────────────────────────────────────────────────
-    const jobHandlerFn = new lambda.Function(this, 'JobHandlerFn', {
+    const jobHandlerFn = new NodejsFunction(this, 'JobHandlerFn', {
       ...baseLambdaProps as lambda.FunctionProps,
       functionName: 'lavavps-job-handler',
       description:  'Ralph Loop autonomous task management (Pro+ only)',
-      code:         lambda.Code.fromAsset('lambdas/handlers/jobHandler'),
-      handler:      'index.handler',
+      entry:        'lambdas/handlers/jobHandler/index.ts',
+      handler:      'handler',
+      bundling:     nodejsBundling,
     });
     jobHandlerFn.addToRolePolicy(dynamoPolicy);
     jobHandlerFn.addToRolePolicy(kmsPolicy);

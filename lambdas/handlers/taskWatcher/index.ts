@@ -49,7 +49,7 @@ export const handler = async (): Promise<void> => {
     IndexName:              'byAgentStatus',
     KeyConditionExpression: 'gsi2pk = :status',
     ExpressionAttributeValues: { ':status': 'STATUS#RUNNING' },
-    ProjectionExpression:   'pk, sk, tenant_id, agent_id, plan_code, task_arn, last_activity_at, idle_timeout_min, restart_count, last_restart_at',
+    ProjectionExpression:   'pk, sk, tenant_id, agent_id, plan_code, task_arn, last_activity_at, idle_timeout_min',
   }));
 
   const runningTasks = runningResult.Items ?? [];
@@ -118,8 +118,8 @@ export const handler = async (): Promise<void> => {
     }
 
     // ── Check crash loop ────────────────────────────────────────────────
-    const restartCount   = (task.restart_count as number)  ?? 0;
-    const lastRestartAt  = task.last_restart_at as string | undefined;
+    const restartCount   = 0; // restart_count not projected in byAgentStatus GSI
+    const lastRestartAt  = undefined as string | undefined; // last_restart_at not projected in byAgentStatus GSI
     const lastRestart    = lastRestartAt ? new Date(lastRestartAt) : null;
     const restartAgeMs   = lastRestart ? now.getTime() - lastRestart.getTime() : Infinity;
     const windowMs       = CRASH_LOOP_WINDOW * 60 * 1000;

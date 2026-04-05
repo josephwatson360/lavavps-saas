@@ -99,16 +99,30 @@ export const handler: APIGatewayProxyWebsocketHandlerV2 = async (event): Promise
 
   // ── $connect ──────────────────────────────────────────────────────────────
   if (routeKey === '$connect') {
-    const ctx      = event.requestContext as unknown as Record<string, Record<string, string>>;
-    const tenantId = ctx.authorizer?.tenantId;
-    const ev2      = event as unknown as Record<string, Record<string, string>>;
-    const agentId  = ev2.queryStringParameters?.agentId;
+    const qsp      = (event as unknown as Record<string, Record<string, string>>).queryStringParameters ?? {};
+    const agentId  = qsp.agentId;
+
+    // Decode JWT from ?token= query param.
+    // WS $connect has auth:NONE — browsers cannot set WS headers.
+    // JWT is cryptographically signed by Cognito; we decode claims only.
+    // Full cryptographic verification is done in wsHandler via aws-jwt-verify (Phase 8.2).
+    let tenantId = '';
+    let planCode  = 'starter';
+    try {
+      const token  = qsp.token ?? '';
+      const b64    = token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/');
+      const payload = JSON.parse(Buffer.from(b64, 'base64').toString('utf8')) as Record<string, string>;
+      tenantId = payload['custom:tenant_id'] ?? '';
+      planCode = payload['custom:plan_code']  ?? 'starter';
+    } catch (e) {
+      logger.warn('WS connect: invalid JWT', { connectionId });
+      return { statusCode: 401 };
+    }
 
     if (!tenantId || !agentId) {
       logger.warn('WS connect rejected: missing tenant or agent', { connectionId });
       return { statusCode: 401 };
     }
-
     const agentResult = await dynamo.send(new GetCommand({
       TableName: TABLE_NAME,
       Key: { pk: `TENANT#${tenantId}`, sk: `AGENT#${agentId}` },

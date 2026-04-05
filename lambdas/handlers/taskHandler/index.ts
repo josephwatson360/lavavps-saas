@@ -147,7 +147,6 @@ export const handler = async (event: APIGatewayProxyEvent): Promise<APIGatewayPr
       const runResult = await ecs.send(new RunTaskCommand({
         cluster:        CLUSTER_NAME,
         taskDefinition: taskDefFamily,
-        launchType:     planCode === 'starter' ? 'FARGATE' : 'FARGATE',
         capacityProviderStrategy: planCode === 'starter'
           ? [{ capacityProvider: 'FARGATE_SPOT', weight: 1, base: 0 },
              { capacityProvider: 'FARGATE',      weight: 1, base: 0 }]

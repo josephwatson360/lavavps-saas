@@ -1,4 +1,7 @@
 import * as cdk     from 'aws-cdk-lib';
+import * as lambda  from 'aws-cdk-lib/aws-lambda';
+import * as logs    from 'aws-cdk-lib/aws-logs';
+import { NodejsFunction } from 'aws-cdk-lib/aws-lambda-nodejs';
 import * as cognito  from 'aws-cdk-lib/aws-cognito';
 import * as ssm      from 'aws-cdk-lib/aws-ssm';
 import { Construct } from 'constructs';
@@ -157,6 +160,34 @@ export class AuthStack extends cdk.Stack {
       writeAttributes: new cognito.ClientAttributes()
         .withStandardAttributes({ email: true }),
     });
+
+    // ── preTokenGeneration Lambda ────────────────────────────────────────
+    // Injects custom:tenant_id and custom:plan_code into every Cognito JWT.
+    // Lives in AuthStack (same stack as UserPool) to avoid cross-stack cycles.
+    // Fires on every sign-in, token refresh, and hosted UI callback.
+    const preTokenGenerationFn = new NodejsFunction(this, 'PreTokenGenerationFn', {
+      functionName: 'lavavps-pre-token-generation',
+      description:  'Cognito Pre Token Generation — injects tenant_id and plan_code into JWT',
+      runtime:      lambda.Runtime.NODEJS_22_X,
+      architecture: lambda.Architecture.ARM_64,
+      entry:        'lambdas/handlers/preTokenGeneration/index.ts',
+      handler:      'handler',
+      bundling: {
+        minify:          true,
+        sourceMap:       true,
+        externalModules: ['@aws-sdk/*'],
+        target:          'node22',
+      },
+      timeout:    cdk.Duration.seconds(5),
+      memorySize: 128,
+
+    });
+
+    // Wire trigger to Cognito User Pool
+    this.userPool.addTrigger(
+      cognito.UserPoolOperation.PRE_TOKEN_GENERATION_CONFIG,
+      preTokenGenerationFn,
+    );
 
     // ── SSM Parameters ─────────────────────────────────────────────────────
     // Lambda functions and the portal build read these at deploy time.
