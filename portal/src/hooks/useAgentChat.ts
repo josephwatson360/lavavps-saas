@@ -78,7 +78,7 @@ export function useAgentChat({ agentId }: UseAgentChatOptions) {
     let token = '';
     try {
       const session = await fetchAuthSession();
-      token = session.tokens?.accessToken?.toString() ?? '';
+      token = session.tokens?.idToken?.toString() ?? '';
     } catch {
       setError('Authentication error. Please refresh.');
       setWsState('error');
