@@ -50,7 +50,7 @@ const handler = async (event) => {
         try {
             const token = qsp.token ?? '';
             const parts = token.split('.');
-            const payload = JSON.parse(Buffer.from(parts[1], 'base64').toString('utf8'));
+            const b64 = parts[1].replace(/-/g, '+').replace(/_/g, '/'); const payload = JSON.parse(Buffer.from(b64, 'base64').toString('utf8'));
             tenantId = payload['custom:tenant_id'] ?? '';
             planCode = payload['custom:plan_code'] ?? 'starter';
         } catch(e) {
