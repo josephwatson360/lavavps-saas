@@ -35,7 +35,9 @@ const handler = async (event) => {
     const tenantId = event.requestContext.authorizer?.claims?.['custom:tenant_id'];
     const planCode = event.requestContext.authorizer?.claims?.['custom:plan_code'] ?? 'starter';
     const agentId = event.pathParameters?.agentId;
-    const action = event.pathParameters?.action; // start | stop
+    // Derive action from path: /agents/{id}/start or /agents/{id}/stop
+    const rawPath = event.path ?? event.requestContext?.path ?? '';
+    const action = rawPath.endsWith('/start') ? 'start' : rawPath.endsWith('/stop') ? 'stop' : event.pathParameters?.action;
     if (!tenantId || !agentId)
         return (0, response_1.badRequest)('Missing tenant or agent context');
     // Fetch agent record
