@@ -627,6 +627,7 @@ export class ControlPlaneStack extends cdk.Stack {
       },
     });
     taskStateChangeFn.addToRolePolicy(dynamoPolicy);
+    taskStateChangeFn.addToRolePolicy(kmsPolicy);
     taskStateChangeFn.addToRolePolicy(new iam.PolicyStatement({
       actions:   ['execute-api:ManageConnections'],
       resources: [`arn:aws:execute-api:${Config.region}:${Config.account}:${Config.deployed.wsApiId}/*`],
