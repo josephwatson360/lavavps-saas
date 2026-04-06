@@ -233,10 +233,17 @@ export const handler: APIGatewayProxyWebsocketHandlerV2 = async (event): Promise
   }
 
   const conn     = connResult.Item;
-  const taskIp   = conn.task_ip   as string;
   const tenantId = conn.tenant_id as string;
   const agentId  = conn.agent_id  as string;
   const body     = event.body ?? '';
+
+  // Re-read agent record to get current task_private_ip.
+  // The WS connection record may have been stored while STARTING (no IP yet).
+  const agentResult = await dynamo.send(new GetCommand({
+    TableName: TABLE_NAME,
+    Key: { pk: `TENANT#${tenantId}`, sk: `AGENT#${agentId}` },
+  }));
+  const taskIp = (agentResult.Item?.task_private_ip ?? conn.task_ip ?? '') as string;
 
   await dynamo.send(new UpdateCommand({
     TableName: TABLE_NAME,
