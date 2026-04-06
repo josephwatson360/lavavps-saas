@@ -24,8 +24,8 @@ const dynamo = DynamoDBDocumentClient.from(new DynamoDBClient({}));
 const TABLE_NAME = process.env.TABLE_NAME!;
 
 export const handler = async (event: APIGatewayProxyEvent): Promise<APIGatewayProxyResult> => {
-  const tenantId = event.requestContext.authorizer?.tenantId as string;
-  const planCode  = event.requestContext.authorizer?.planCode  as string ?? 'starter';
+  const tenantId = event.requestContext.authorizer?.claims?.['custom:tenant_id'] as string;
+  const planCode  = event.requestContext.authorizer?.claims?.['custom:plan_code'] as string ?? 'starter';
   const agentId  = event.pathParameters?.agentId;
   const jobId    = event.pathParameters?.jobId;
 

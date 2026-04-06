@@ -36,8 +36,8 @@ const PRIVATE_SUBNETS = process.env.PRIVATE_SUBNETS?.split(',') ?? [];
 const FARGATE_SG_ID   = process.env.FARGATE_SG_ID!;
 
 export const handler = async (event: APIGatewayProxyEvent): Promise<APIGatewayProxyResult> => {
-  const tenantId = event.requestContext.authorizer?.tenantId as string;
-  const planCode  = event.requestContext.authorizer?.planCode  as string ?? 'starter';
+  const tenantId = event.requestContext.authorizer?.claims?.['custom:tenant_id'] as string;
+  const planCode  = event.requestContext.authorizer?.claims?.['custom:plan_code'] as string ?? 'starter';
   const agentId  = event.pathParameters?.agentId;
   const action   = event.pathParameters?.action; // start | stop
 

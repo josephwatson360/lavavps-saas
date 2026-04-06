@@ -28,7 +28,7 @@ const CHAT_BUCKET  = process.env.CHAT_BUCKET ?? `lavavps-chat-history-${process.
 const MAX_FILE_SIZE_BYTES = 100 * 1024 * 1024; // 100 MB per file
 
 export const handler = async (event: APIGatewayProxyEvent): Promise<APIGatewayProxyResult> => {
-  const tenantId = event.requestContext.authorizer?.tenantId as string;
+  const tenantId = event.requestContext.authorizer?.claims?.['custom:tenant_id'] as string;
   const agentId  = event.pathParameters?.agentId;
   const fileKey  = event.pathParameters?.fileKey
     ? decodeURIComponent(event.pathParameters.fileKey)

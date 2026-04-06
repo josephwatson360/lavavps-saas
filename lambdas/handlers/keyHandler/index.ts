@@ -32,7 +32,7 @@ const AWS_ACCOUNT         = process.env.AWS_ACCOUNT!;
 const SUPPORTED_PROVIDERS = ['anthropic', 'openai', 'google', 'xai', 'mistral', 'cohere'];
 
 export const handler = async (event: APIGatewayProxyEvent): Promise<APIGatewayProxyResult> => {
-  const tenantId = event.requestContext.authorizer?.tenantId as string;
+  const tenantId = event.requestContext.authorizer?.claims?.['custom:tenant_id'] as string;
   const agentId  = event.pathParameters?.agentId;
 
   if (!tenantId || !agentId) return badRequest('Missing tenant or agent context');

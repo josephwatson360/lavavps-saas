@@ -177,8 +177,8 @@ export const handler = async (
   event: APIGatewayProxyEvent,
 ): Promise<APIGatewayProxyResult> => {
 
-  const tenantId = event.requestContext.authorizer?.tenantId as string;
-  const planCode  = event.requestContext.authorizer?.planCode  as string;
+  const tenantId = event.requestContext.authorizer?.claims?.['custom:tenant_id'] as string;
+  const planCode  = event.requestContext.authorizer?.claims?.['custom:plan_code'] as string;
   const agentId  = event.pathParameters?.agentId;
 
   if (!tenantId || !agentId) {
