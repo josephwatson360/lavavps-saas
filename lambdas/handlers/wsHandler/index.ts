@@ -136,8 +136,11 @@ export const handler: APIGatewayProxyWebsocketHandlerV2 = async (event): Promise
     const status = item.status as string;
     const taskIp = item.task_private_ip as string | undefined;
 
-    if (status !== 'RUNNING' || !taskIp) {
-      logger.warn('WS connect: agent not running', { connectionId, tenantId, agentId, status });
+    // Accept STARTING agents — connection is stored so taskStateChangeHandler
+    // can push agent_ready when ECS task reaches RUNNING.
+    // Only reject truly invalid states (STOPPED, SUSPENDED, unknown).
+    if (status !== 'RUNNING' && status !== 'STARTING') {
+      logger.warn('WS connect: agent not ready', { connectionId, tenantId, agentId, status });
       return { statusCode: 503 };
     }
 
@@ -172,14 +175,17 @@ export const handler: APIGatewayProxyWebsocketHandlerV2 = async (event): Promise
       ExpressionAttributeValues: { ':now': new Date().toISOString() },
     }));
 
-    // Pre-warm the OpenClaw connection so first message has zero extra latency
-    try {
-      await getOrCreateOpenClawWs(taskIp, connectionId, apigw);
-      logger.info('WS connected + OpenClaw pre-warmed', { connectionId, tenantId, agentId });
-    } catch (err) {
-      logger.warn('OpenClaw pre-warm failed — will retry on first message', {
-        connectionId, taskIp, error: err instanceof Error ? err.message : 'unknown',
-      });
+    // Pre-warm OpenClaw connection only if agent is already RUNNING (has a taskIp).
+    // If STARTING, taskStateChangeHandler will push agent_ready when ECS reaches RUNNING.
+    if (taskIp) {
+      try {
+        await getOrCreateOpenClawWs(taskIp, connectionId, apigw);
+        logger.info('WS connected + OpenClaw pre-warmed', { connectionId, tenantId, agentId });
+      } catch (err) {
+        logger.warn('OpenClaw pre-warm failed — will retry on first message', {
+          connectionId, taskIp, error: err instanceof Error ? err.message : 'unknown',
+        });
+      }
     }
 
     return { statusCode: 200 };
@@ -226,6 +232,14 @@ export const handler: APIGatewayProxyWebsocketHandlerV2 = async (event): Promise
   }));
 
   try {
+    if (!taskIp) {
+      // Agent is STARTING — not yet RUNNING, no container to relay to
+      await apigw.send(new PostToConnectionCommand({
+        ConnectionId: connectionId,
+        Data: Buffer.from(JSON.stringify({ type: 'error', message: 'Agent is starting. Please wait for agent_ready.' })),
+      })).catch(() => {});
+      return { statusCode: 200 };
+    }
     const openclawWs = await getOrCreateOpenClawWs(taskIp, connectionId, apigw);
     openclawWs.send(body);
     logger.info('Message forwarded to OpenClaw', { connectionId, tenantId, agentId });

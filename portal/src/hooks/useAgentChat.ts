@@ -66,7 +66,9 @@ export function useAgentChat({ agentId }: UseAgentChatOptions) {
       }
     }
 
-    if (status !== 'RUNNING') {
+    // Accept STARTING — WS opens now so taskStateChangeHandler can push agent_ready when ECS reaches RUNNING.
+    // Only block terminal states (STOPPED, SUSPENDED, unknown).
+    if (status !== 'RUNNING' && status !== 'STARTING') {
       setError(`Agent is ${status}. Please contact support if this persists.`);
       setWsState('error');
       return;
