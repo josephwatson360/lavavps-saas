@@ -631,6 +631,11 @@ export class ControlPlaneStack extends cdk.Stack {
       actions:   ['execute-api:ManageConnections'],
       resources: [`arn:aws:execute-api:${Config.region}:${Config.account}:${Config.deployed.wsApiId}/*`],
     }));
+    taskStateChangeFn.addToRolePolicy(new iam.PolicyStatement({
+      actions:   ['ecs:DescribeTasks'],
+      resources: ['*'],
+      conditions: { ArnLike: { 'ecs:cluster': Config.deployed.clusterArn } },
+    }));
 
     // EventBridge rule: ECS Task State Change → RUNNING or STOPPED for lavavps-agents cluster
     const ecsTaskStateRule = new events.Rule(this, 'EcsTaskStateChangeRule', {

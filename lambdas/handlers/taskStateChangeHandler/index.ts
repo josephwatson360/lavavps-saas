@@ -3,6 +3,7 @@ import {
   PostToConnectionCommand,
   DeleteConnectionCommand,
 } from '@aws-sdk/client-apigatewaymanagementapi';
+import { ECSClient, DescribeTasksCommand } from '@aws-sdk/client-ecs';
 import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
 import {
   DynamoDBDocumentClient,
@@ -38,6 +39,8 @@ import { createLogger } from '../../layer/src/logger';
 
 const logger     = createLogger('taskStateChangeHandler');
 const dynamo     = DynamoDBDocumentClient.from(new DynamoDBClient({}));
+const ecs        = new ECSClient({});
+const CLUSTER    = process.env.CLUSTER_NAME!;
 const TABLE_NAME = process.env.TABLE_NAME!;
 const WS_ENDPOINT = process.env.WS_ENDPOINT!; // https://{id}.execute-api.{region}.amazonaws.com/{stage}
 
@@ -90,13 +93,37 @@ function getEnvVars(event: EcsTaskStateChangeEvent): { tenantId: string; agentId
   return null;
 }
 
-function getPrivateIp(event: EcsTaskStateChangeEvent): string | null {
+function getPrivateIpFromEvent(event: EcsTaskStateChangeEvent): string | null {
   const attachments = event.detail.attachments ?? [];
   for (const attachment of attachments) {
     if (attachment.type === 'ElasticNetworkInterface') {
       const ip = attachment.details.find(d => d.name === 'privateIPv4Address')?.value;
       if (ip) return ip;
     }
+  }
+  return null;
+}
+
+async function getPrivateIp(taskArn: string, eventIp: string | null): Promise<string | null> {
+  // Try the event payload first (fastest)
+  if (eventIp) return eventIp;
+
+  // Fallback: call DescribeTasks to get the private IP
+  try {
+    const result = await ecs.send(new DescribeTasksCommand({
+      cluster: CLUSTER,
+      tasks:   [taskArn],
+    }));
+    const task = result.tasks?.[0];
+    if (!task) return null;
+    for (const attachment of task.attachments ?? []) {
+      if (attachment.type === 'ElasticNetworkInterface') {
+        const detail = attachment.details?.find(d => d.name === 'privateIPv4Address');
+        if (detail?.value) return detail.value;
+      }
+    }
+  } catch (err) {
+    // Log but don't fail — DynamoDB will be updated without IP
   }
   return null;
 }
@@ -182,7 +209,7 @@ export const handler = async (event: EcsTaskStateChangeEvent): Promise<void> => 
 
   // ── RUNNING ────────────────────────────────────────────────────────────────
   if (status === 'RUNNING') {
-    const privateIp = getPrivateIp(event);
+    const privateIp = await getPrivateIp(taskArn, getPrivateIpFromEvent(event));
 
     if (!privateIp) {
       logger.warn('Task RUNNING but no private IP found', { tenantId, agentId, taskArn });

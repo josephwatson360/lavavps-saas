@@ -142,10 +142,22 @@ export const handler: APIGatewayProxyWebsocketHandlerV2 = async (event): Promise
     }
 
     const now = Math.floor(Date.now() / 1000);
+    // connectionId-indexed record — used by $disconnect for cleanup
     await dynamo.send(new PutCommand({
       TableName: TABLE_NAME,
       Item: {
         pk: `WS#${connectionId}`, sk: `WS#${connectionId}`,
+        connection_id: connectionId, tenant_id: tenantId,
+        agent_id: agentId, task_ip: taskIp,
+        connected_at: new Date().toISOString(),
+        ttl: now + WS_TTL_SECONDS,
+      },
+    }));
+    // tenant-indexed record — used by taskStateChangeHandler to push agent_ready
+    await dynamo.send(new PutCommand({
+      TableName: TABLE_NAME,
+      Item: {
+        pk: `TENANT#${tenantId}`, sk: `WS#${connectionId}`,
         connection_id: connectionId, tenant_id: tenantId,
         agent_id: agentId, task_ip: taskIp,
         connected_at: new Date().toISOString(),
