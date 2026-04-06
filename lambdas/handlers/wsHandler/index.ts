@@ -188,6 +188,20 @@ export const handler: APIGatewayProxyWebsocketHandlerV2 = async (event): Promise
       }
     }
 
+    // If agent is already RUNNING when portal connects, push agent_ready immediately.
+    // This handles the race condition where ECS reached RUNNING before the portal opened WS.
+    if (status === 'RUNNING') {
+      try {
+        await apigw.send(new PostToConnectionCommand({
+          ConnectionId: connectionId,
+          Data: Buffer.from(JSON.stringify({ type: 'agent_ready', agentId })),
+        }));
+        logger.info('Pushed agent_ready immediately (agent already RUNNING)', { connectionId, tenantId, agentId });
+      } catch (err) {
+        logger.warn('Failed to push immediate agent_ready', { connectionId, error: String(err) });
+      }
+    }
+
     return { statusCode: 200 };
   }
 
