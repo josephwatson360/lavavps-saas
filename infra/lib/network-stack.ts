@@ -210,6 +210,13 @@ export class NetworkStack extends cdk.Stack {
       ec2.Peer.ipv4(Config.vpcCidr), ec2.Port.tcp(2049),
       'EFS NFS for bootstrapperLambda to write config');
     this.lambdaSg.addEgressRule(
+      ec2.Peer.ipv4(Config.vpcCidr), ec2.Port.tcp(Config.openclawPort),
+      `wsHandler to OpenClaw port ${Config.openclawPort}`);
+    // Allow wsHandler Lambda to reach OpenClaw containers directly
+    this.fargateSg.addIngressRule(
+      this.lambdaSg, ec2.Port.tcp(Config.openclawPort),
+      `wsHandler Lambda to OpenClaw port ${Config.openclawPort}`);
+    this.lambdaSg.addEgressRule(
       ec2.Peer.ipv4(Config.vpcCidr), ec2.Port.udp(53), 'DNS');
     this.lambdaSg.addEgressRule(
       ec2.Peer.ipv4(Config.vpcCidr), ec2.Port.tcp(53), 'DNS TCP');
