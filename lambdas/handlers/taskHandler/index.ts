@@ -14,8 +14,8 @@ import { ok, badRequest, notFound, internalError } from '../../layer/src/respons
 //
 // Pre-wake flow:
 //   Portal calls POST /start before opening WebSocket.
-//   Handler starts ECS task and polls /readyz up to 45 seconds.
-//   Returns RUNNING once healthy, or error if startup times out.
+//   Handler starts ECS task, writes STARTING to DynamoDB, returns immediately.
+//   taskStateChangeHandler Lambda handles RUNNING transition via EventBridge.
 //   This ensures the WS connection always lands on a ready agent.
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -206,31 +206,9 @@ export const handler = async (event: APIGatewayProxyEvent): Promise<APIGatewayPr
         },
       }));
 
-      // Poll /readyz up to 45 seconds for pre-wake
-      const taskIp = task?.attachments?.[0]?.details?.find(
-        d => d.name === 'privateIPv4Address'
-      )?.value;
-
-      if (taskIp) {
-        const ready = await pollReadyz(taskIp, 45);
-        if (ready) {
-          await dynamo.send(new UpdateCommand({
-            TableName: TABLE_NAME,
-            Key: { pk: `TENANT#${tenantId}`, sk: `AGENT#${agentId}` },
-            UpdateExpression: 'SET #s = :s, gsi2pk = :gsi2pk, last_activity_at = :now, updated_at = :now',
-            ExpressionAttributeNames: { '#s': 'status' },
-            ExpressionAttributeValues: {
-              ':s':      'RUNNING',
-              ':gsi2pk': 'STATUS#RUNNING',
-              ':now':    new Date().toISOString(),
-            },
-          }));
-          return ok({ status: 'RUNNING', agentId, taskArn });
-        }
-      }
-
-      // Task started but /readyz not yet ready — portal will poll status
-      return ok({ status: 'STARTING', agentId, taskArn, message: 'Agent is starting' });
+      // EventBridge taskStateChangeHandler handles RUNNING transition.
+      // Return STARTING immediately — portal WebSocket receives agent_ready push when ECS task reaches RUNNING.
+      return ok({ status: 'STARTING', agentId, taskArn, message: 'Agent is starting. You will be connected automatically.' });
 
     } catch (err) {
       logger.error('Failed to start ECS task', {
@@ -297,19 +275,3 @@ export const handler = async (event: APIGatewayProxyEvent): Promise<APIGatewayPr
   return { statusCode: 405, headers: { 'Content-Type': 'application/json' }, body: 'Method not allowed' };
 };
 
-// ── Pre-wake: poll /readyz until agent is ready ───────────────────────────────
-async function pollReadyz(taskIp: string, timeoutSeconds: number): Promise<boolean> {
-  const deadline = Date.now() + timeoutSeconds * 1000;
-  const url      = `http://${taskIp}:${process.env.OPENCLAW_PORT ?? '18789'}/readyz`;
-
-  while (Date.now() < deadline) {
-    try {
-      const resp = await fetch(url, { signal: AbortSignal.timeout(3000) });
-      if (resp.ok) return true;
-    } catch {
-      // Not ready yet — continue polling
-    }
-    await new Promise(r => setTimeout(r, 2000));
-  }
-  return false;
-}

@@ -100,6 +100,18 @@ export function useAgentChat({ agentId }: UseAgentChatOptions) {
       try {
         const data = JSON.parse(event.data as string);
 
+        // ── Server-pushed lifecycle events from taskStateChangeHandler ──────────
+        if (data.type === 'agent_ready') {
+          // EventBridge detected ECS task reached RUNNING — connect immediately
+          setWsState('connected');
+          setTimeout(() => inputRef.current?.focus(), 50);
+          return;
+        }
+        if (data.type === 'agent_stopped') {
+          // ECS task stopped — update UI state
+          setWsState('disconnected');
+          return;
+        }
         if (data.type === 'typing' || data.type === 'thinking') {
           setIsTyping(true);
           return;

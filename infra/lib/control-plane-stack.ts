@@ -609,6 +609,47 @@ export class ControlPlaneStack extends cdk.Stack {
     // ── EventBridge: Task Watcher schedule ───────────────────────────────
     // taskWatcherLambda runs every 2 minutes to check idle timeouts and crash loops
     // Built in Phase 4 Part B — placeholder rule created now
+    // ── taskStateChangeHandler — EventBridge ECS Task State Change ─────────────
+    // Triggered by EventBridge when an ECS task in the lavavps-agents cluster
+    // transitions to RUNNING or STOPPED. Updates DynamoDB and pushes agent_ready
+    // or agent_stopped to the portal WebSocket — zero polling, event-driven.
+    const taskStateChangeFn = new NodejsFunction(this, 'TaskStateChangeFn', {
+      ...baseLambdaProps as lambda.FunctionProps,
+      functionName: 'lavavps-task-state-change',
+      description:  'ECS Task State Change → DynamoDB update + WebSocket push to portal',
+      entry:        'lambdas/handlers/taskStateChangeHandler/index.ts',
+      handler:      'handler',
+      bundling:     nodejsBundling,
+      timeout:      cdk.Duration.seconds(30),
+      environment: {
+        ...commonEnv,
+        WS_ENDPOINT: `https://${Config.deployed.wsApiId}.execute-api.${Config.region}.amazonaws.com/prod`,
+      },
+    });
+    taskStateChangeFn.addToRolePolicy(dynamoPolicy);
+    taskStateChangeFn.addToRolePolicy(new iam.PolicyStatement({
+      actions:   ['execute-api:ManageConnections'],
+      resources: [`arn:aws:execute-api:${Config.region}:${Config.account}:${Config.deployed.wsApiId}/*`],
+    }));
+
+    // EventBridge rule: ECS Task State Change → RUNNING or STOPPED for lavavps-agents cluster
+    const ecsTaskStateRule = new events.Rule(this, 'EcsTaskStateChangeRule', {
+      ruleName:    'lavavps-ecs-task-state-change',
+      description: 'Fires when an OpenClaw ECS task reaches RUNNING or STOPPED',
+      eventPattern: {
+        source:     ['aws.ecs'],
+        detailType: ['ECS Task State Change'],
+        detail: {
+          clusterArn: [Config.deployed.clusterArn],
+          lastStatus: ['RUNNING', 'STOPPED', 'DEPROVISIONING'],
+        },
+      },
+    });
+    ecsTaskStateRule.addTarget(
+      new targets.LambdaFunction(taskStateChangeFn, { retryAttempts: 2 }),
+    );
+
+    // ── taskWatcher schedule ──────────────────────────────────────────────────
     const taskWatcherRule = new events.Rule(this, 'TaskWatcherRule', {
       ruleName:    'lavavps-task-watcher',
       description: 'Triggers taskWatcherLambda every 2 minutes',
