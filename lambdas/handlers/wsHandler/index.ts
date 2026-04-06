@@ -247,11 +247,9 @@ export const handler: APIGatewayProxyWebsocketHandlerV2 = async (event): Promise
 
   try {
     if (!taskIp) {
-      // Agent is STARTING — not yet RUNNING, no container to relay to
-      await apigw.send(new PostToConnectionCommand({
-        ConnectionId: connectionId,
-        Data: Buffer.from(JSON.stringify({ type: 'error', message: 'Agent is starting. Please wait for agent_ready.' })),
-      })).catch(() => {});
+      // Agent is STARTING — silently drop messages until agent_ready is received.
+      // The portal will retry after receiving agent_ready from taskStateChangeHandler.
+      logger.info('Message dropped: agent STARTING, no taskIp yet', { connectionId, tenantId, agentId });
       return { statusCode: 200 };
     }
     const openclawWs = await getOrCreateOpenClawWs(taskIp, connectionId, apigw);
