@@ -41,6 +41,7 @@ const CONFIG_BUCKET       = process.env.CONFIG_BUCKET!;
 const BOOTSTRAPPER_ARN    = process.env.BOOTSTRAPPER_ARN!;
 const OLLAMA_ALB_DNS      = process.env.OLLAMA_ALB_DNS!;
 const TRUSTED_PROXIES     = process.env.TRUSTED_PROXIES!.split(','); // "10.100.0.0/24,10.100.1.0/24"
+const LAMBDA_SUBNET_CIDRS = (process.env.LAMBDA_SUBNET_CIDRS ?? '').split(',').filter(Boolean);
 const OPENCLAW_PORT       = parseInt(process.env.OPENCLAW_PORT ?? '18789');
 
 // ── OpenClaw Config Types ─────────────────────────────────────────────────────
@@ -59,6 +60,11 @@ interface OpenClawConfig {
     };
     reload: {
       mode: string;
+    };
+    http?: {
+      endpoints?: {
+        chatCompletions?: { enabled: boolean };
+      };
     };
   };
   agents: {
@@ -149,7 +155,7 @@ export const handler = async (event: { tenantId: string; agentId: string }): Pro
     gateway: {
       bind:           'lan',
       port:           OPENCLAW_PORT,
-      trustedProxies: TRUSTED_PROXIES,  // ALB public subnet CIDRs from env var
+      trustedProxies: [...TRUSTED_PROXIES, ...LAMBDA_SUBNET_CIDRS], // ALB + Lambda subnet CIDRs
       auth: {
         mode: 'trusted-proxy',          // LOCKED: ALB Cognito auth is the gate
         trustedProxy: {
@@ -159,6 +165,11 @@ export const handler = async (event: { tenantId: string; agentId: string }): Pro
       },
       reload: {
         mode: 'hybrid',                 // LOCKED: hot-apply safe changes, restart when needed
+      },
+      http: {
+        endpoints: {
+          chatCompletions: { enabled: true }, // LOCKED: enables /v1/chat/completions for portal
+        },
       },
     },
     agents: {

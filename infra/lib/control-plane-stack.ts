@@ -65,6 +65,7 @@ export class ControlPlaneStack extends cdk.Stack {
       OPENCLAW_PORT:        String(Config.openclawPort),
       OLLAMA_ALB_DNS:       Config.deployed.ollamaAlbDns,
       TRUSTED_PROXIES:      Config.deployed.trustedProxies.join(','),
+      LAMBDA_SUBNET_CIDRS:  Config.deployed.lambdaSubnetCidrs.join(','),
       AWS_ACCOUNT:          Config.account,
       AWS_REGION_NAME:      Config.region,
     };
@@ -422,6 +423,23 @@ export class ControlPlaneStack extends cdk.Stack {
     jobHandlerFn.addToRolePolicy(kmsPolicy);
 
     // ── billingHandler ────────────────────────────────────────────────────
+    // ── chatHandler — Lambda Response Streaming proxy to OpenClaw HTTP API ────────
+    const chatHandlerFn = new NodejsFunction(this, 'ChatHandlerFn', {
+      ...baseLambdaProps as lambda.FunctionProps,
+      functionName: 'lavavps-chat-handler',
+      description:  'Streams chat completions from OpenClaw /v1/chat/completions to portal via Lambda Response Streaming',
+      entry:        'lambdas/handlers/chatHandler/index.ts',
+      handler:      'handler',
+      bundling:     nodejsBundling,
+      timeout:      cdk.Duration.seconds(120),  // long timeout for streaming responses
+      environment: {
+        ...commonEnv,
+        LAMBDA_SUBNET_CIDRS: Config.deployed.lambdaSubnetCidrs.join(','),
+      },
+    });
+    chatHandlerFn.addToRolePolicy(dynamoPolicy);
+    chatHandlerFn.addToRolePolicy(kmsPolicy);
+
     const billingHandlerFn = new lambda.Function(this, 'BillingHandlerFn', {
       ...baseLambdaProps as lambda.FunctionProps,
       functionName: 'lavavps-billing-handler',
@@ -516,6 +534,13 @@ export class ControlPlaneStack extends cdk.Stack {
     // GET/POST /agents/{agentId}/status|start|stop
     const statusResource = agentResource.addResource('status');
     statusResource.addMethod('GET', lambdaIntegration(taskHandlerFn), authOptions);
+
+    // ── Chat streaming endpoint (Lambda Response Streaming) ──────────────────
+    // Portal POSTs messages here; chatHandler proxies to OpenClaw SSE API
+    const chatResource = agentResource.addResource('chat');
+    chatResource.addMethod('POST', new apigw.LambdaIntegration(chatHandlerFn, {
+      proxy: true,
+    }), authOptions);
 
     const actionResource = agentResource.addResource('{action}'); // start | stop
     actionResource.addMethod('POST', lambdaIntegration(taskHandlerFn), authOptions);

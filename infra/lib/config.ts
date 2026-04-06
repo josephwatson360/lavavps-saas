@@ -36,6 +36,7 @@ export const Config = {
     wafWebAclArn:          'arn:aws:wafv2:us-east-1:914964735635:regional/webacl/lavavps-waf/37ef6a53-aa2d-43a0-b434-402ac8d29a9b',
     // trustedProxies: public subnet CIDRs for OpenClaw gateway config (locked in configRenderer)
     trustedProxies:        ['10.100.0.0/24', '10.100.1.0/24'],
+    lambdaSubnetCidrs:     ['10.100.2.0/24', '10.100.3.0/24'], // Private subnets where Lambda runs
     // Phase 2 - Storage
     efsId:                 'fs-0ff44f0429f833ca5',
     efsArn:                'arn:aws:elasticfilesystem:us-east-1:914964735635:file-system/fs-0ff44f0429f833ca5',
